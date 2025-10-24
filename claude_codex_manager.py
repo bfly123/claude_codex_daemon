@@ -149,17 +149,34 @@ class ClaudeCodexManager:
 
     def _setup_child_monitor(self):
         def monitor_child():
+            print(f"[Codex Monitor] 开始监控子进程 PID: {self.codex_pid}")
             while self.codex_active:
                 try:
-                    os.waitpid(self.codex_pid, os.WNOHANG)
-                except OSError:
-                    print("Codex进程异常退出，正在重新启动...")
+                    # 检查子进程状态
+                    pid, status = os.waitpid(self.codex_pid, os.WNOHANG)
+                    if pid == 0:
+                        # 子进程正常运行
+                        pass
+                    else:
+                        # 子进程已退出
+                        exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else "异常"
+                        print(f"[Codex Monitor] 子进程 PID:{pid} 已退出，退出码: {exit_code}")
+                        print("[Codex Monitor] 正在重新启动Codex服务...")
+                        self._restart_codex_process()
+                        break
+                except OSError as e:
+                    print(f"[Codex Monitor] 检测到异常: {e}")
+                    print("[Codex Monitor] Codex进程异常退出，正在重新启动...")
                     self._restart_codex_process()
+                    break
+                except Exception as e:
+                    print(f"[Codex Monitor] 监控线程异常: {e}")
                     break
                 time.sleep(2)
 
         monitor_thread = threading.Thread(target=monitor_child, daemon=True)
         monitor_thread.start()
+        print(f"[Codex Monitor] 监控线程已启动，实例ID: {self.instance_id}")
 
     def _restart_codex_process(self):
         print(f"正在重启Codex实例 {self.instance_id}...")

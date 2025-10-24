@@ -62,14 +62,17 @@ class CodexCommandHandler:
         # 需要激活状态的命令
         activation_required_commands = {"/codex-ask", "/codex-status", "/codex-stop"}
 
-        if cmd_type not in no_activation_commands and cmd_type not in activation_required_commands:
-            # 对于配置相关命令，先进行参数验证
-            if cmd_type in {"/codex-config", "/codex-reasoning", "/codex-final_only"}:
-                validation_result = self._validate_command_parameters(cmd_type, command)
-                if validation_result:
-                    return validation_result
+        # 首先检查需要激活状态的命令
+        if cmd_type in activation_required_commands and not self.codex_manager.codex_active:
+            return "❌ Codex服务未激活，请先运行 /codex-start 或输入 /codex-help 查看指引"
 
-            # 其他需要激活状态的命令
+        # 对于配置相关命令，先进行参数验证（无需激活状态）
+        if cmd_type in {"/codex-config", "/codex-reasoning", "/codex-final_only"}:
+            validation_result = self._validate_command_parameters(cmd_type, command)
+            if validation_result:
+                return validation_result
+
+            # 配置命令在参数验证通过后，检查是否需要激活
             if not self.codex_manager.codex_active:
                 return "❌ Codex服务未激活，请先运行 /codex-start 或输入 /codex-help 查看指引"
 
