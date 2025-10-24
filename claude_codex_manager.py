@@ -21,12 +21,18 @@ class ClaudeCodexManager:
         self.start_time = None
 
     def _generate_instance_id(self):
-        return str(uuid.uuid4())[:8]
+        claude_pid = os.getppid()
+        user_id = os.getuid()
+        import hashlib
+        # 基于Claude进程ID，确保跨重启稳定性（重启后Claude进程ID通常相同）
+        stable_string = f"codex-{user_id}-{claude_pid}"
+        return hashlib.md5(stable_string.encode()).hexdigest()[:8]
 
     def _generate_secure_socket_path(self):
         claude_pid = os.getppid()
-        unique_id = self._generate_instance_id()
-        socket_path = f"/tmp/codex-{claude_pid}-{unique_id}.sock"
+        instance_id = self._generate_instance_id()
+        # 添加进程ID以避免socket冲突，但保持instance_id稳定
+        socket_path = f"/tmp/codex-{instance_id}-{claude_pid}.sock"
         return socket_path
 
     def _setup_socket_permissions(self, socket_path):
@@ -54,12 +60,46 @@ class ClaudeCodexManager:
             time.sleep(0.1)
         raise RuntimeError("Socket启动超时")
 
+    def _load_existing_config(self):
+        """在启动时加载已保存的配置状态"""
+        if os.path.exists(self.history_file):
+            try:
+                file_stat = os.stat(self.history_file)
+                # 权限和所有者校验
+                if file_stat.st_uid != os.getuid():
+                    return
+                if file_stat.st_mode & 0o077 != 0:
+                    return
+
+                with open(self.history_file, 'r') as f:
+                    data = json.load(f)
+
+                # 验证instance_id匹配
+                if data.get("instance_id") == self.instance_id:
+                    # 恢复配置状态
+                    profile = data.get("current_profile", "default")
+                    if profile in ["high", "low", "default"]:
+                        self.current_profile = profile
+
+                    self.show_reasoning = bool(data.get("show_reasoning", False))
+                    output_format = data.get("output_format", "final_only")
+                    if output_format in ["final_only", "final_with_details"]:
+                        self.output_format = output_format
+
+                    print(f"已加载配置: Profile={self.current_profile}, ShowReasoning={self.show_reasoning}, OutputFormat={self.output_format}")
+            except Exception as e:
+                print(f"加载配置失败: {e}")
+
     def auto_activate_on_first_use(self):
         if not self.codex_active:
             self.instance_id = self._generate_instance_id()
             self.socket_path = self._generate_secure_socket_path()
-            self.history_file = self.socket_path.replace('.sock', '-history.json')
+            # 历史文件基于稳定的instance_id，确保跨重启一致性
+            self.history_file = f"/tmp/codex-{self.instance_id}-history.json"
             self.start_time = time.time()
+
+            # 在启动前先加载已保存的配置状态
+            self._load_existing_config()
 
             self.codex_pid = os.fork()
             if self.codex_pid == 0:

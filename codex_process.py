@@ -233,7 +233,8 @@ class CodexProcess:
         return f"模拟回答({depth} tokens): {message}"
 
     def _save_history(self):
-        history_file = self.socket_path.replace('.sock', '-history.json')
+        # 历史文件基于稳定的instance_id，确保跨重启一致性
+        history_file = f"/tmp/codex-{self.instance_id}-history.json"
         data = {
             "instance_id": self.instance_id,
             "conversation_history": self.conversation_history,
@@ -247,7 +248,8 @@ class CodexProcess:
         os.chmod(history_file, 0o600)
 
     def _load_history_securely(self):
-        history_file = self.socket_path.replace('.sock', '-history.json')
+        # 历史文件基于稳定的instance_id，确保跨重启一致性
+        history_file = f"/tmp/codex-{self.instance_id}-history.json"
         if not os.path.exists(history_file):
             return
 
@@ -288,7 +290,13 @@ if __name__ == "__main__":
         os.sys.exit(1)
 
     socket_path = os.sys.argv[1]
-    instance_id = socket_path.split('/')[-1].replace('.sock', '').split('-')[-1]
+    # 新格式: codex-<stable-id>-<pid>.sock，需要提取stable-id部分
+    filename = socket_path.split('/')[-1].replace('.sock', '')
+    parts = filename.split('-')
+    if len(parts) >= 2 and parts[0] == 'codex':
+        instance_id = parts[1]  # 提取stable-id部分
+    else:
+        os.sys.exit(1)
 
     codex = CodexProcess(socket_path, instance_id)
     codex.run()
