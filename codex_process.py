@@ -4,6 +4,7 @@ import os
 import socket
 import time
 import signal
+import stat
 
 
 class CodexProcess:
@@ -218,7 +219,33 @@ class CodexProcess:
         }
 
     def _log_config_change(self, config_type, old, new):
-        print(f"[Codex Config] {config_type}: {old} -> {new}")
+        import time
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[Codex Config {timestamp}] {config_type}: {old} -> {new} (instance: {self.instance_id})")
+
+        # 记录到调试日志文件
+        try:
+            log_file = f"/tmp/codex-{self.instance_id}-debug.log"
+            # 安全的日志追加，防止symlink攻击
+            fd = os.open(log_file, os.O_NOFOLLOW | os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+
+            # 验证确实是普通文件
+            file_stat = os.fstat(fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                os.close(fd)
+                raise Exception("日志文件不是普通文件")
+
+            # 验证所有者
+            if file_stat.st_uid != os.getuid():
+                os.close(fd)
+                raise Exception("日志文件所有者不正确")
+
+            # 写入日志
+            with os.fdopen(fd, 'a') as f:
+                f.write(f"{timestamp} CONFIG_CHANGE {config_type}: {old} -> {new}\n")
+
+        except Exception as e:
+            print(f"[Codex Config] 写入调试日志失败: {e}")
 
     def _get_model_params_for_profile(self, profile):
         mapping = {
@@ -243,9 +270,35 @@ class CodexProcess:
             "output_format": self.output_format,
             "saved_at": int(time.time())
         }
-        with open(history_file, 'w') as f:
-            json.dump(data, f, indent=2)
-        os.chmod(history_file, 0o600)
+
+        # 安全文件写入，防止symlink攻击
+        try:
+            # 使用 O_NOFOLLOW 防止跟随符号链接
+            fd = os.open(history_file, os.O_NOFOLLOW | os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+
+            # 验证确实是普通文件
+            file_stat = os.fstat(fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                os.close(fd)
+                raise Exception("目标不是普通文件")
+
+            # 验证所有者
+            if file_stat.st_uid != os.getuid():
+                os.close(fd)
+                raise Exception("文件所有者不正确")
+
+            # 写入数据
+            with os.fdopen(fd, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        except Exception as e:
+            print(f"[Codex Security] 历史文件写入失败: {e}")
+            # 如果写入失败，尝试删除可能存在的不安全文件
+            try:
+                if os.path.exists(history_file):
+                    os.unlink(history_file)
+            except:
+                pass
 
     def _load_history_securely(self):
         # 历史文件基于稳定的instance_id，确保跨重启一致性

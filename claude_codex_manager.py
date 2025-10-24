@@ -21,12 +21,20 @@ class ClaudeCodexManager:
         self.start_time = None
 
     def _generate_instance_id(self):
-        claude_pid = os.getppid()
         user_id = os.getuid()
         import hashlib
-        # 基于Claude进程ID，确保跨重启稳定性（重启后Claude进程ID通常相同）
-        stable_string = f"codex-{user_id}-{claude_pid}"
-        return hashlib.md5(stable_string.encode()).hexdigest()[:8]
+        import pwd
+        import uuid
+        import time
+
+        # 每个会话生成唯一的instance_id，但包含时间戳以支持历史恢复
+        username = pwd.getpwuid(user_id).pw_name
+        timestamp = int(time.time() // 60)  # 分钟级时间戳，确保重启后短期内能找到历史
+        unique_id = str(uuid.uuid4())[:8]
+        stable_string = f"codex-{username}-{user_id}-{timestamp}-{unique_id}"
+        instance_id = hashlib.md5(stable_string.encode()).hexdigest()[:8]
+
+        return instance_id
 
     def _generate_secure_socket_path(self):
         claude_pid = os.getppid()
@@ -60,46 +68,96 @@ class ClaudeCodexManager:
             time.sleep(0.1)
         raise RuntimeError("Socket启动超时")
 
-    def _load_existing_config(self):
-        """在启动时加载已保存的配置状态"""
-        if os.path.exists(self.history_file):
-            try:
-                file_stat = os.stat(self.history_file)
-                # 权限和所有者校验
-                if file_stat.st_uid != os.getuid():
-                    return
-                if file_stat.st_mode & 0o077 != 0:
-                    return
+    def _recover_existing_session(self):
+        """尝试恢复现有的会话状态"""
+        import glob
+        import os
 
-                with open(self.history_file, 'r') as f:
+        user_id = os.getuid()
+        pattern = f"/tmp/codex-*-history.json"
+        history_files = glob.glob(pattern)
+
+        # 过滤出属于当前用户的文件，并按修改时间排序
+        user_files = []
+        for file_path in history_files:
+            try:
+                file_stat = os.stat(file_path)
+                if (file_stat.st_uid == user_id and
+                    file_stat.st_mode & 0o077 == 0):
+                    user_files.append((file_path, file_stat.st_mtime))
+            except:
+                continue
+
+        # 按修改时间降序排列，取最近的
+        user_files.sort(key=lambda x: x[1], reverse=True)
+
+        for file_path, mtime in user_files:
+            try:
+                with open(file_path, 'r') as f:
                     data = json.load(f)
 
-                # 验证instance_id匹配
-                if data.get("instance_id") == self.instance_id:
-                    # 恢复配置状态
-                    profile = data.get("current_profile", "default")
-                    if profile in ["high", "low", "default"]:
-                        self.current_profile = profile
+                # 跳过空的或无对话历史的文件
+                if not data.get("conversation_history"):
+                    continue
 
-                    self.show_reasoning = bool(data.get("show_reasoning", False))
-                    output_format = data.get("output_format", "final_only")
-                    if output_format in ["final_only", "final_with_details"]:
-                        self.output_format = output_format
+                # 检查文件是否太旧（超过24小时则不恢复）
+                file_age = time.time() - mtime
+                if file_age > 24 * 3600:  # 24小时
+                    continue
 
-                    print(f"已加载配置: Profile={self.current_profile}, ShowReasoning={self.show_reasoning}, OutputFormat={self.output_format}")
+                # 提取完整的会话状态
+                instance_id = data.get("instance_id")
+                if not instance_id:
+                    continue
+
+                current_profile = data.get("current_profile", "default")
+                if current_profile not in ["high", "low", "default"]:
+                    current_profile = "default"
+
+                show_reasoning = bool(data.get("show_reasoning", False))
+                output_format = data.get("output_format", "final_only")
+                if output_format not in ["final_only", "final_with_details"]:
+                    output_format = "final_only"
+
+                return {
+                    "instance_id": instance_id,
+                    "history_file": file_path,
+                    "current_profile": current_profile,
+                    "show_reasoning": show_reasoning,
+                    "output_format": output_format,
+                    "conversation_count": len(data.get("conversation_history", []))
+                }
             except Exception as e:
-                print(f"加载配置失败: {e}")
+                print(f"[Codex Recovery] 尝试恢复会话文件 {file_path} 失败: {e}")
+                continue
+
+        return None
+
+    def _load_existing_config(self):
+        """在启动时加载已保存的配置状态（已弃用，使用 _recover_existing_session）"""
+        pass
 
     def auto_activate_on_first_use(self):
         if not self.codex_active:
-            self.instance_id = self._generate_instance_id()
-            self.socket_path = self._generate_secure_socket_path()
-            # 历史文件基于稳定的instance_id，确保跨重启一致性
-            self.history_file = f"/tmp/codex-{self.instance_id}-history.json"
-            self.start_time = time.time()
+            # 首先尝试恢复现有的历史文件
+            recovered_state = self._recover_existing_session()
 
-            # 在启动前先加载已保存的配置状态
-            self._load_existing_config()
+            if recovered_state:
+                # 使用恢复的instance_id和历史文件路径
+                self.instance_id = recovered_state["instance_id"]
+                self.history_file = recovered_state["history_file"]
+                self.current_profile = recovered_state["current_profile"]
+                self.show_reasoning = recovered_state["show_reasoning"]
+                self.output_format = recovered_state["output_format"]
+                print(f"[Codex Recovery] 恢复会话: instance_id={self.instance_id}, 历史文件={self.history_file}")
+            else:
+                # 生成新的会话ID
+                self.instance_id = self._generate_instance_id()
+                self.history_file = f"/tmp/codex-{self.instance_id}-history.json"
+                print(f"[Codex Recovery] 创建新会话: instance_id={self.instance_id}")
+
+            self.socket_path = self._generate_secure_socket_path()
+            self.start_time = time.time()
 
             self.codex_pid = os.fork()
             if self.codex_pid == 0:
@@ -179,14 +237,16 @@ class ClaudeCodexManager:
         print(f"[Codex Monitor] 监控线程已启动，实例ID: {self.instance_id}")
 
     def _restart_codex_process(self):
-        print(f"正在重启Codex实例 {self.instance_id}...")
+        print(f"[Codex Restart] 开始重启Codex实例 {self.instance_id}...")
 
         old_state = {}
         if os.path.exists(self.history_file):
             try:
+                print(f"[Codex Restart] 正在读取历史文件: {self.history_file}")
                 with open(self.history_file, 'r') as f:
                     old_data = json.load(f)
                     if old_data.get("instance_id") == self.instance_id:
+                        conversation_count = len(old_data.get("conversation_history", []))
                         old_state = {
                             "conversation_history": old_data.get("conversation_history", []),
                             "current_profile": old_data.get("current_profile", "default"),
@@ -196,8 +256,13 @@ class ClaudeCodexManager:
                         self.current_profile = old_state["current_profile"]
                         self.show_reasoning = old_state["show_reasoning"]
                         self.output_format = old_state["output_format"]
-            except:
-                pass
+                        print(f"[Codex Restart] 已恢复状态: {conversation_count}条对话, Profile={self.current_profile}")
+                    else:
+                        print(f"[Codex Restart] 历史文件instance_id不匹配，跳过状态恢复")
+            except Exception as e:
+                print(f"[Codex Restart] 读取历史文件失败: {e}")
+        else:
+            print(f"[Codex Restart] 历史文件不存在，将使用默认配置")
 
         self.codex_pid = os.fork()
         if self.codex_pid == 0:
