@@ -5,12 +5,14 @@ import socket
 import time
 import signal
 import stat
+import subprocess
 
 
 class CodexProcess:
-    def __init__(self, socket_path, instance_id):
+    def __init__(self, socket_path, instance_id, client_id=None):
         self.socket_path = socket_path
         self.instance_id = instance_id
+        self.client_id = client_id
         self.conversation_history = []
         self.current_profile = "default"
         self.show_reasoning = False
@@ -24,15 +26,24 @@ class CodexProcess:
         exit(0)
 
     def run(self):
-        self._load_history_securely()
-
+        # 先设置socket，让父进程能快速通过等待检查
         if os.path.exists(self.socket_path):
             os.unlink(self.socket_path)
+
+        socket_dir = os.path.dirname(self.socket_path)
+        if socket_dir:
+            os.makedirs(socket_dir, mode=0o700, exist_ok=True)
+            current_mode = stat.S_IMODE(os.stat(socket_dir).st_mode)
+            if current_mode != 0o700:
+                os.chmod(socket_dir, 0o700)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(self.socket_path)
         sock.listen(1)
         os.chmod(self.socket_path, 0o600)
+
+        # Socket已就绪，现在异步加载历史文件
+        self._async_load_history()
 
         while self.running:
             try:
@@ -47,6 +58,22 @@ class CodexProcess:
                 break
 
         sock.close()
+
+    def _async_load_history(self):
+        """异步加载历史文件，不阻塞socket监听"""
+        import threading
+        import time
+
+        def load_history():
+            try:
+                self._load_history_securely()
+                print(f"[Codex Async] 历史文件异步加载完成")
+            except Exception as e:
+                print(f"[Codex Async] 历史文件加载失败: {e}")
+
+        # 在后台线程中加载历史
+        history_thread = threading.Thread(target=load_history, daemon=True)
+        history_thread.start()
 
     def handle_request(self, request):
         try:
@@ -164,7 +191,8 @@ class CodexProcess:
     def _process_query(self, request):
         config = request["config"]
         profile = config.get("profile", self.current_profile)
-        params = self._get_model_params_for_profile(profile)
+        params = dict(self._get_model_params_for_profile(profile))
+        params["profile"] = profile
 
         self.conversation_history.append({
             "role": "user",
@@ -240,12 +268,147 @@ class CodexProcess:
                 os.close(fd)
                 raise Exception("日志文件所有者不正确")
 
-            # 写入日志
+            # 写入日志并强制同步
             with os.fdopen(fd, 'a') as f:
                 f.write(f"{timestamp} CONFIG_CHANGE {config_type}: {old} -> {new}\n")
+                f.flush()  # 确保数据写入用户空间
+                os.fsync(fd)  # 强制同步到磁盘
 
         except Exception as e:
             print(f"[Codex Config] 写入调试日志失败: {e}")
+
+    def _build_codex_prompt(self, profile, params):
+        """构造发送给Codex CLI的完整提示词"""
+        profile_instructions = {
+            "high": (
+                "You are an advanced coding assistant. Provide thorough, well-structured answers "
+                "with step-by-step explanations and best practices."
+            ),
+            "default": (
+                "You are a helpful coding assistant. Provide clear and practical answers with "
+                "just enough detail for day-to-day development."
+            ),
+            "low": (
+                "You are a concise assistant. Provide brief answers that focus on the essential "
+                "steps or conclusions."
+            )
+        }
+
+        instructions = [
+            profile_instructions.get(profile, profile_instructions["default"]),
+            f"Target depth tokens: {params.get('max_tokens', 2000)}.",
+        ]
+
+        if self.output_format == "final_only":
+            instructions.append("Return only the final answer without additional metadata.")
+        else:
+            instructions.append("Include the final answer followed by any supporting notes or examples.")
+
+        if self.show_reasoning:
+            instructions.append(
+                "Before the final answer, include a short reasoning summary prefixed with 'Reasoning:'."
+            )
+        else:
+            instructions.append("Do not reveal internal reasoning or chain-of-thought. Respond with the final answer only.")
+
+        instructions.append("")  # spacer
+        instructions.append("Conversation history (oldest first):")
+
+        history = self.conversation_history[-10:]  # 保留最近对话，控制提示长度
+        for entry in history:
+            role = "User" if entry.get("role") == "user" else "Assistant"
+            content = entry.get("content", "").strip()
+            if not content:
+                content = "[empty]"
+            content = content.replace("\r", "").replace("\n", "\n  ")
+            instructions.append(f"{role}: {content}")
+
+        instructions.append("Assistant:")
+        return "\n".join(instructions)
+
+    def _parse_codex_cli_output(self, raw_output):
+        """解析 codex exec --json 输出，返回 (answer, reasoning)"""
+        answer_chunks = []
+        reasoning_chunks = []
+
+        for line in raw_output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            event_type = payload.get("type")
+            item = payload.get("item", {})
+            item_type = item.get("type")
+
+            text = ""
+            if event_type == "item.completed":
+                text = item.get("text", "")
+            elif event_type == "item.delta":
+                text = item.get("delta", {}).get("text", "")
+
+            if not text:
+                continue
+
+            if item_type == "agent_message":
+                answer_chunks.append(text)
+            elif item_type == "reasoning":
+                reasoning_chunks.append(text)
+
+        answer_text = "".join(answer_chunks).strip()
+        reasoning_text = "".join(reasoning_chunks).strip()
+        return answer_text, reasoning_text
+
+    def _invoke_codex_cli(self, prompt):
+        """调用 codex CLI 并返回解析后的响应文本"""
+        cmd = [
+            "codex",
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "-"  # 从stdin读取提示词
+        ]
+
+        env = os.environ.copy()
+        env.setdefault("NO_COLOR", "1")
+
+        try:
+            completed = subprocess.run(
+                cmd,
+                input=prompt.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=env,
+                timeout=180
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("未找到 codex CLI，请确认已安装并加入 PATH。") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Codex CLI 响应超时，请稍后重试。") from exc
+
+        if completed.returncode != 0:
+            stderr_text = completed.stderr.decode("utf-8", "ignore").strip()
+            raise RuntimeError(f"Codex CLI 调用失败: {stderr_text or '未知错误'}")
+
+        stdout_text = completed.stdout.decode("utf-8", "ignore")
+        answer_text, reasoning_text = self._parse_codex_cli_output(stdout_text)
+
+        if not answer_text:
+            fallback = stdout_text.strip()
+            if fallback:
+                answer_text = fallback
+            else:
+                raise RuntimeError("Codex CLI 未返回有效回答。")
+
+        if self.show_reasoning and reasoning_text:
+            return f"🧠 Reasoning:\n{reasoning_text}\n\n{answer_text}"
+        return answer_text
 
     def _get_model_params_for_profile(self, profile):
         mapping = {
@@ -256,18 +419,28 @@ class CodexProcess:
         return mapping.get(profile, mapping["default"])
 
     def _call_codex_with_params(self, message, params):
-        depth = params.get("max_tokens", 2000)
-        return f"模拟回答({depth} tokens): {message}"
+        profile = params.get("profile", self.current_profile)
+        prompt = self._build_codex_prompt(profile, params)
+        return self._invoke_codex_cli(prompt)
 
     def _save_history(self):
         # 历史文件基于稳定的instance_id，确保跨重启一致性
         history_file = f"/tmp/codex-{self.instance_id}-history.json"
+
+        # 获取Claude父进程ID和socket路径用于实例隔离
+        import os
+        claude_parent_pid = os.getppid()
+        current_socket_path = self.socket_path
+
         data = {
             "instance_id": self.instance_id,
+            "claude_parent_pid": claude_parent_pid,  # 记录Claude父进程ID
+            "socket_path": current_socket_path,     # 记录socket路径
             "conversation_history": self.conversation_history,
             "current_profile": self.current_profile,
             "show_reasoning": self.show_reasoning,
             "output_format": self.output_format,
+            "client_id": self.client_id,
             "saved_at": int(time.time())
         }
 
@@ -287,9 +460,11 @@ class CodexProcess:
                 os.close(fd)
                 raise Exception("文件所有者不正确")
 
-            # 写入数据
+            # 写入数据并强制同步到磁盘
             with os.fdopen(fd, 'w') as f:
                 json.dump(data, f, indent=2)
+                f.flush()  # 确保数据写入用户空间
+                os.fsync(fd)  # 强制同步到磁盘
 
         except Exception as e:
             print(f"[Codex Security] 历史文件写入失败: {e}")
@@ -320,6 +495,11 @@ class CodexProcess:
                 data = json.load(f)
 
             if data.get("instance_id") == self.instance_id:
+                saved_client_id = data.get("client_id")
+                if self.client_id and saved_client_id and saved_client_id != self.client_id:
+                    print("警告：历史文件client_id不匹配，跳过加载")
+                    return
+
                 self.conversation_history = data.get("conversation_history", [])
 
                 profile = data.get("current_profile", "default")

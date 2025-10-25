@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""
+claude-codex - Claude Code with integrated Codex AI assistant
+在启动Claude Code的同时自动启动Codex守护进程
+"""
+
+import sys
+import os
+import json
+import subprocess
+import signal
+import time
+import argparse
+import atexit
+import uuid
+from pathlib import Path
+
+class ClaudeCodexWrapper:
+    def __init__(self):
+        self.script_dir = Path(__file__).parent.absolute()
+        self.daemon_path = self.script_dir / "codex_daemon.py"
+        self.socket_path = "/tmp/codex-daemon.sock"
+        self.pid_file = "/tmp/codex-daemon.pid"
+        self.daemon_process = None
+        self.claude_process = None
+        self.client_id = os.environ.get("CODEX_CLIENT_ID") or f"codex-client-{uuid.uuid4().hex[:10]}"
+
+    def check_daemon_running(self):
+        """检查守护进程是否已运行"""
+        if not os.path.exists(self.socket_path):
+            return False
+
+        try:
+            # 尝试连接socket验证服务可用性
+            import socket
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2)  # 稍微增加超时时间
+            sock.connect(self.socket_path)
+            sock.close()
+            return True
+        except socket.timeout:
+            return False
+        except socket.error:
+            return False
+        except Exception:
+            return False
+
+    def start_daemon(self):
+        """启动Codex守护进程"""
+        if self.check_daemon_running():
+            print("🤖 Codex守护进程已在运行")
+            return True
+
+        print("🚀 启动Codex守护进程...")
+
+        try:
+            # 后台启动守护进程
+            cmd = [
+                "python3", str(self.daemon_path),
+                "--socket", self.socket_path,
+                "--daemon"
+            ]
+
+            self.daemon_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True  # 创建新的进程组
+            )
+
+            # 等待守护进程启动
+            max_wait = 10  # 最多等待10秒
+            for i in range(max_wait):
+                if self.check_daemon_running():
+                    print(f"✅ Codex守护进程已启动 (PID: {self.daemon_process.pid})")
+                    return True
+                time.sleep(1)
+                if i == 3:  # 3秒后提示用户
+                    print("⏳ 等待Codex服务启动...")
+
+            print("❌ Codex守护进程启动超时")
+            return False
+
+        except Exception as e:
+            print(f"❌ 启动Codex守护进程失败: {e}")
+            return False
+
+    def stop_daemon(self):
+        """停止Codex守护进程"""
+        stopped = False
+
+        # 首先尝试通过socket发送优雅停止命令
+        if os.path.exists(self.socket_path):
+            try:
+                import socket
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(3)
+                sock.connect(self.socket_path)
+
+                # 发送关闭命令
+                stop_request = {"command": "/codex-shutdown"}
+                request_json = json.dumps(stop_request, ensure_ascii=False)
+                sock.send(request_json.encode('utf-8') + b'\n')
+
+                # 等待响应
+                response = sock.recv(1024)
+                sock.close()
+                print("✅ 发送停止命令到守护进程")
+                time.sleep(1)  # 给守护进程时间清理
+                stopped = True
+            except Exception:
+                pass  # Socket通信失败，继续使用其他方法
+
+        # 如果socket停止失败，尝试从PID文件读取真实的守护进程PID
+        if not stopped and os.path.exists(self.pid_file):
+            try:
+                with open(self.pid_file, 'r') as f:
+                    daemon_pid = int(f.read().strip())
+
+                # 检查进程是否存在
+                os.kill(daemon_pid, 0)  # 如果进程不存在会抛出OSError
+
+                print(f"🛑 停止Codex守护进程 (PID: {daemon_pid})...")
+                os.kill(daemon_pid, 15)  # 发送TERM信号
+                stopped = True
+
+                # 等待进程退出
+                for _ in range(5):  # 最多等待5秒
+                    try:
+                        os.kill(daemon_pid, 0)
+                        time.sleep(1)
+                    except OSError:
+                        break  # 进程已退出
+                else:
+                    # 如果进程仍在运行，强制杀死
+                    print("强制终止守护进程...")
+                    os.kill(daemon_pid, 9)
+
+            except (OSError, ValueError, ProcessLookupError):
+                pass  # PID文件无效或进程已不存在
+
+        # 备用方案：尝试停止存储的进程（可能已不准确）
+        if not stopped and self.daemon_process and self.daemon_process.poll() is None:
+            print("🛑 停止Codex守护进程...")
+            self.daemon_process.terminate()
+            try:
+                self.daemon_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.daemon_process.kill()
+
+        # 清理socket和PID文件
+        for path in [self.socket_path, self.pid_file]:
+            if os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except:
+                    pass
+
+    def start_claude(self, args):
+        """启动Claude Code"""
+        print("🚀 启动Claude Code...")
+
+        # 构建Claude Code命令
+        claude_cmd = ["claude"] + args
+
+        env = os.environ.copy()
+        env["CODEX_CLIENT_ID"] = self.client_id
+
+        try:
+            print(f"执行: {' '.join(claude_cmd)}")
+            # 对于交互模式，需要继承stdin/stdout/stderr
+            self.claude_process = subprocess.run(
+                claude_cmd,
+                check=False,  # 不强制要求成功退出
+                stdin=sys.stdin,  # 继承标准输入
+                stdout=sys.stdout,  # 继承标准输出
+                stderr=sys.stderr,   # 继承标准错误
+                env=env
+            )
+            return self.claude_process.returncode
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 130
+        except Exception as e:
+            print(f"❌ 启动Claude Code失败: {e}")
+            return 1
+
+    def cleanup(self):
+        """清理资源"""
+        print("\n🧹 清理资源...")
+        self.stop_daemon()
+        print("✅ 清理完成")
+
+    def run(self):
+        """主运行流程"""
+        # 注册清理函数
+        atexit.register(self.cleanup)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
+        # 启动守护进程（如果未运行）
+        if not self.start_daemon():
+            print("❌ Codex守护进程启动失败，无法继续")
+            return 1
+
+        try:
+            # 启动Claude Code
+            return self.start_claude(sys.argv[1:])
+        finally:
+            self.cleanup()
+
+    def _signal_handler(self, signum, frame):
+        """信号处理器"""
+        print(f"\n收到信号 {signum}，正在退出...")
+        self.cleanup()
+        sys.exit(0)
+
+def show_help():
+    """显示帮助信息"""
+    help_text = """
+claude-codex - Claude Code with integrated Codex AI assistant
+
+用法:
+    claude-codex [OPTIONS] [COMMAND] [ARGS]...
+
+功能:
+    🤖 自动启动Codex守护进程
+    🔗 与Claude Code完全集成
+    📝 支持所有原始claude-code参数
+
+示例:
+    claude-codex                           # 启动交互模式
+    claude-codex -c "python3 --version"     # 执行命令
+    claude-codex --help                     # 显示帮助
+    claude-codex /path/to/project           # 打开项目
+
+Codex命令 (在Claude中使用):
+    /codex-ask <问题>          - 向AI提问
+    /codex-config [profile]     - 配置AI模型强度
+    /codex-status              - 查看服务状态
+    /codex-help               - 显示Codex帮助
+
+更多信息:
+    完整的Claude Code参数请参考: claude-code --help
+"""
+    print(help_text)
+
+def main():
+    # 处理帮助参数
+    if len(sys.argv) == 1:
+        # 无参数时启动交互模式（一键启动）
+        wrapper = ClaudeCodexWrapper()
+        return wrapper.run()
+    elif '--help' in sys.argv or '-h' in sys.argv:
+        show_help()
+        # 同时显示原始claude-code的帮助
+        print("\n" + "="*50)
+        print("原始Claude Code帮助:")
+        print("="*50)
+        try:
+            subprocess.run(["claude", "--help"], check=False)
+        except:
+            pass
+        return 0
+
+    wrapper = ClaudeCodexWrapper()
+    return wrapper.run()
+
+if __name__ == "__main__":
+    sys.exit(main())

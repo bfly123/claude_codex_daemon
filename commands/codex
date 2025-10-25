@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Claude Code slash command for Codex integration
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="${CODEX_HOME:-$DEFAULT_PROJECT_DIR}"
+
+if [ ! -d "$PROJECT_DIR" ]; then
+  echo "❌ 无法定位 Codex 安装目录: $PROJECT_DIR" >&2
+  exit 1
+fi
+
+export CODEX_HOME="$PROJECT_DIR"
+
+python3 - "$@" <<'PY'
+import sys
+import os
+
+project_dir = os.environ.get("CODEX_HOME")
+if not project_dir:
+    print("❌ 未设置 CODEX_HOME 环境变量")
+    sys.exit(1)
+
+sys.path.insert(0, project_dir)
+try:
+    from codex_commands import handle_codex_command
+except ImportError as exc:
+    print(f"❌ 无法导入 codex_commands: {exc}")
+    sys.exit(1)
+
+if len(sys.argv) <= 1:
+    print("❌ 请提供要执行的 codex 命令，例如 /codex-help")
+    sys.exit(1)
+
+command = " ".join(sys.argv[1:])
+print(handle_codex_command(command))
+PY
