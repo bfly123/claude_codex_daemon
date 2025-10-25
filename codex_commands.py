@@ -10,7 +10,9 @@ import os
 from typing import Dict, Any, Optional
 
 class CodexClient:
-    def __init__(self, socket_path: str = "/tmp/codex-daemon.sock"):
+    def __init__(self, socket_path: Optional[str] = None):
+        if socket_path is None:
+            socket_path = os.environ.get("CODEX_DAEMON_SOCKET", "/tmp/codex-daemon.sock")
         self.socket_path = socket_path
         self.max_retries = 3
         self.base_timeout = 5  # 减少基础超时时间

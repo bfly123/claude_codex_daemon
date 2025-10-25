@@ -210,6 +210,8 @@ class ClaudeCodexWrapper:
 
         env = os.environ.copy()
         env["CODEX_CLIENT_ID"] = self.client_id
+        env["CODEX_DAEMON_SOCKET"] = str(self.socket_path)
+        env["CODEX_DAEMON_PID"] = str(self.pid_file)
 
         try:
             print(f"执行: {' '.join(claude_cmd)}")

@@ -153,6 +153,19 @@ claude-codex
 
 ## 开发提示
 
+### 项目技术介绍
+- 采用 Python 3 编写的守护进程 + 子进程架构，`codex_daemon.py` 负责长连接管理，`claude_codex_manager.py` 负责实例生命周期，`codex_process.py` 处理实际 Codex 调用。
+- 通过 Unix Domain Socket/FIFO 作为主通信通道，结合结构化 JSON 协议，实现 CLI 与守护进程之间的双向指令流。
+- 历史记录、安全写入与恢复逻辑集中在 `ClaudeCodexManager`，利用 0600 权限、`O_NOFOLLOW` 防止符号链接攻击，并提供分钟级实例恢复。
+- Slash 命令通过 `codex_commands.py` 与 `commands/codex` 脚本嵌入 Claude CLI，保持与前端互动时的统一体验。
+
+### 核心技术特点
+- **多客户端复用**：基于 `client_id` 的懒加载管理器，动态分配 Codex 子进程并复用历史。
+- **健壮通信链路**：内建重试、超时控制以及健康检查接口，降低短暂抖动导致的失败。
+- **自动清理与守护**：守护线程检测空闲会话，触发 `claude_cleanup_on_exit` 进行资源回收，减少僵尸进程风险。
+- **安全运行环境**：运行目录权限检查、套接字所有者校验以及可配置的 runtime 目录，适配多种受限环境。
+- **扩展友好**：明确的模块划分与辅助方法（如 `_handle_config_request`、`get_current_config`），便于新增配置项或接入更多命令。
+
 - 多客户端行为已在 `codex_daemon.py` 与 `claude_codex_manager.py` 内复用，新增特性时请确保保持 `client_id` 传递。
 - 对话历史默认保留最近 200 轮，可在 `codex_process.py` 内调整。
 - `_save_history` 使用安全写入策略（`O_NOFOLLOW`、权限 0600），修改时注意保持安全性。
