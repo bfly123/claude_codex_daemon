@@ -9,6 +9,7 @@
 - **真实 Codex 调用**：守护进程子进程通过 `codex exec --json` 调用 Codex CLI，解析流式输出并返回最终答案。
 - **健壮通信**：Unix Socket + 超时重试，单次请求默认 180 秒超时，并自动截断响应换行。
 - **运行洞察**：提供 `/codex-status` 与 `/codex-health` 命令/接口，可同时查看单客户端与全局运行概况。
+- **自动清理**：当客户端 60 秒无活动时，对应 Codex 子进程会自动关闭，可通过 `CODEX_CLIENT_IDLE_TIMEOUT` 环境变量调整。
 
 ## 组件概览
 
@@ -63,6 +64,7 @@ codex_process.py
    ```bash
    claude-codex
    ```
+   - 守护进程默认使用 `~/.codex_runtime/codex-daemon.sock`，适配多数受限环境。
    - 首次启动会分配一个随机 `CODEX_CLIENT_ID` 并写入子进程环境。
    - 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude-codex`。
 
@@ -81,6 +83,7 @@ codex_process.py
 - 每个终端/窗口运行 `claude-codex` 都会携带独立 `CODEX_CLIENT_ID`。
 - 守护进程按 `client_id` 存储历史、配置和 socket，确保上下文不会串线。
 - 同一客户端再次启动会尝试复用其历史文件并恢复 conversation context。
+- 每个客户端若超过 60 秒无请求，会被守护进程自动清理以释放资源，可通过 `CODEX_CLIENT_IDLE_TIMEOUT=<秒>` 调整阈值。
 
 ### 查看全局状态
 
@@ -134,6 +137,19 @@ PY
 - 历史文件：`/tmp/codex-<instance>-history.json`
 - 守护进程健康校验：`python3 codex_daemon.py --health`
 - 若 `codex exec` 命令缺失或超时，子进程会返回明确的错误提示。
+- 如需手动清理，可删除 `~/.codex_runtime/codex-daemon.sock`、`~/.codex_runtime/codex-daemon.pid`。
+
+若系统策略禁止在 `/tmp` 创建 Unix Socket，可在启动前改用自定义路径（程序会自动尝试 `~/.codex_runtime/`，仍不行时退回 `/tmp/codex-$USER/`）：
+
+```bash
+export CODEX_DAEMON_SOCKET="$HOME/.codex_runtime/codex-daemon.sock"
+export CODEX_DAEMON_PID="$HOME/.codex_runtime/codex-daemon.pid"
+claude-codex
+```
+
+摘掉这些环境变量即可恢复默认行为。
+
+若 `~/.codex_runtime` 目录曾以 root 身份创建，请先 `chmod -R 700 ~/.codex_runtime && chown -R $USER ~/.codex_runtime` 或直接删除后再运行，避免因权限导致守护进程不断退回其他路径。
 
 ## 开发提示
 

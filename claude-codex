@@ -13,17 +13,62 @@ import time
 import argparse
 import atexit
 import uuid
+import getpass
 from pathlib import Path
 
 class ClaudeCodexWrapper:
     def __init__(self):
         self.script_dir = Path(__file__).parent.absolute()
         self.daemon_path = self.script_dir / "codex_daemon.py"
-        self.socket_path = "/tmp/codex-daemon.sock"
-        self.pid_file = "/tmp/codex-daemon.pid"
+
+        runtime_root = self._select_runtime_root()
+        default_socket = runtime_root / "codex-daemon.sock"
+        default_pid = runtime_root / "codex-daemon.pid"
+
+        self.socket_path = os.environ.get("CODEX_DAEMON_SOCKET", str(default_socket))
+        self.pid_file = os.environ.get("CODEX_DAEMON_PID", str(default_pid))
         self.daemon_process = None
         self.claude_process = None
         self.client_id = os.environ.get("CODEX_CLIENT_ID") or f"codex-client-{uuid.uuid4().hex[:10]}"
+        self.runtime_root = runtime_root
+
+    def _select_runtime_root(self):
+        candidates = []
+
+        env_runtime = os.environ.get("CODEX_RUNTIME_DIR")
+        if env_runtime:
+            candidates.append(Path(env_runtime).expanduser())
+
+        candidates.append(Path("/tmp") / f"codex-{getpass.getuser()}")
+        candidates.append(Path.home() / ".codex_runtime")
+
+        uid = os.getuid()
+        for candidate in candidates:
+            try:
+                candidate.mkdir(parents=True, exist_ok=True)
+                stat_info = candidate.stat()
+                if stat_info.st_uid != uid:
+                    print(f"⚠️ 运行目录 {candidate} 所有者不是当前用户，跳过")
+                    continue
+                test_path = candidate / f".write_test-{uuid.uuid4().hex}"
+                try:
+                    with open(test_path, 'w') as fp:
+                        fp.write('ok')
+                finally:
+                    try:
+                        test_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                candidate.chmod(0o700)
+                return candidate
+            except PermissionError:
+                continue
+            except Exception as exc:
+                print(f"⚠️ 创建运行目录 {candidate} 失败: {exc}")
+                continue
+
+        print("❌ 无法创建 Codex 运行目录，请检查权限")
+        sys.exit(1)
 
     def check_daemon_running(self):
         """检查守护进程是否已运行"""

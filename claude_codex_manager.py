@@ -39,6 +39,9 @@ class ClaudeCodexManager:
         self.last_seen = time.time()
         self.ipc_mode = self._determine_ipc_mode()
 
+    def touch(self):
+        self.last_seen = time.time()
+
     def _initialize_runtime_dir(self):
         system = platform.system()
         if system not in {"Linux", "Darwin"}:
@@ -668,6 +671,7 @@ class ClaudeCodexManager:
         )
         if response.get("status") == "success":
             self.show_reasoning = target
+            self.touch()
             label = "on" if target else "off"
             return f"✅ Show Reasoning 已设置为 {label}"
         return f"❌ 设置失败: {response.get('message', '未知错误')}"
@@ -685,6 +689,7 @@ class ClaudeCodexManager:
         )
         if response.get("status") == "success":
             self.output_format = target
+            self.touch()
             return f"✅ Output Format 已切换为 {target}"
         return f"❌ 设置失败: {response.get('message', '未知错误')}"
 
@@ -693,6 +698,7 @@ class ClaudeCodexManager:
         reasoning_flag = "on" if cfg["show_reasoning"] else "off"
         output_flag = cfg["output_format"]
         output_desc = "final_only" if output_flag == "final_only" else "final_with_details"
+        self.touch()
         return (
             "📋 当前配置:\n"
             f"• Profile: {cfg['profile']} ({self._describe_profile(cfg['profile'])})\n"
@@ -707,6 +713,7 @@ class ClaudeCodexManager:
             return "❌ Codex服务未运行"
 
         status = self.get_detailed_status()
+        self.touch()
         return (
             "✅ Codex服务运行中:\n"
             f"• 实例ID: {status['instance_id']}\n"
@@ -736,5 +743,6 @@ class ClaudeCodexManager:
                     os.unlink(self.socket_path)
 
                 self.codex_active = False
+                self.touch()
             except:
                 pass

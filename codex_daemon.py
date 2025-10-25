@@ -43,12 +43,14 @@ class CodexDaemon:
     def __init__(self, socket_path="/tmp/codex-daemon.sock", daemon_mode=False):
         self.socket_path = socket_path
         self.managers = {}
+        self.managers_lock = threading.Lock()
         self.running = False
         self.server_socket = None
         self.client_threads = []
         self.daemon_mode = daemon_mode
         self.logger = setup_logging(daemon_mode=daemon_mode)
         self.start_time = time.time()  # 初始化启动时间
+        self.idle_timeout = int(os.environ.get("CODEX_CLIENT_IDLE_TIMEOUT", "60"))
 
     def start(self):
         """启动守护进程"""
@@ -66,12 +68,21 @@ class CodexDaemon:
 
         # 创建Unix socket
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        socket_dir = os.path.dirname(self.socket_path)
+        if socket_dir:
+            try:
+                os.makedirs(socket_dir, exist_ok=True)
+                os.chmod(socket_dir, 0o700)
+            except Exception as exc:
+                self.logger.error(f"创建socket目录失败: {exc}")
+                raise
         self.server_socket.bind(self.socket_path)
         self.server_socket.listen(5)
         os.chmod(self.socket_path, 0o600)  # 仅用户可访问
 
         # 初始化Codex管理器
         self.running = True
+        self._start_manager_gc()
 
         # 启动监听线程
         listen_thread = threading.Thread(target=self._listen_connections, daemon=True)
@@ -91,6 +102,28 @@ class CodexDaemon:
             self.stop()
 
         return True
+
+    def _start_manager_gc(self):
+        def cleaner():
+            while self.running:
+                now = time.time()
+                with self.managers_lock:
+                    items = list(self.managers.items())
+                for client_id, manager in items:
+                    idle = now - getattr(manager, "last_seen", now)
+                    if idle >= self.idle_timeout:
+                        self.logger.info(f"检测到客户端 {client_id} 空闲 {idle:.0f}s，自动清理")
+                        try:
+                            if manager.codex_active:
+                                manager.claude_cleanup_on_exit()
+                        except Exception as exc:
+                            self.logger.warning(f"清理客户端 {client_id} 时失败: {exc}")
+                        with self.managers_lock:
+                            self.managers.pop(client_id, None)
+                time.sleep(15)
+
+        gc_thread = threading.Thread(target=cleaner, daemon=True)
+        gc_thread.start()
 
     def _listen_connections(self):
         """监听客户端连接"""
@@ -130,7 +163,9 @@ class CodexDaemon:
             }
 
         clients = []
-        for client_id, manager in self.managers.items():
+        with self.managers_lock:
+            items = list(self.managers.items())
+        for client_id, manager in items:
             client_info = {
                 "client_id": client_id,
                 "codex_active": manager.codex_active,
@@ -156,15 +191,31 @@ class CodexDaemon:
         if not client_id:
             raise ValueError("请求缺少 client_id")
 
-        manager = self.managers.get(client_id)
-        if manager is None:
-            manager = ClaudeCodexManager(client_id=client_id)
-            self.managers[client_id] = manager
-            self.logger.info(f"为新客户端创建Codex实例: {client_id}")
+        with self.managers_lock:
+            manager = self.managers.get(client_id)
+            if manager is None:
+                manager = ClaudeCodexManager(client_id=client_id)
+                self.managers[client_id] = manager
+                self.logger.info(f"为新客户端创建Codex实例: {client_id}")
+        manager.touch()
         return manager
 
     def _get_manager(self, client_id):
-        return self.managers.get(client_id)
+        with self.managers_lock:
+            manager = self.managers.get(client_id)
+        if manager:
+            manager.touch()
+        return manager
+
+    def _remove_manager(self, client_id):
+        with self.managers_lock:
+            manager = self.managers.pop(client_id, None)
+        if manager:
+            try:
+                if manager.codex_active:
+                    manager.claude_cleanup_on_exit()
+            except Exception as exc:
+                self.logger.warning(f"移除客户端 {client_id} 时清理失败: {exc}")
 
     def _handle_client(self, conn, client_id):
         """处理客户端请求"""
@@ -270,10 +321,12 @@ class CodexDaemon:
                         return {"success": True, "response": result}
                     return {"success": True, "response": "ℹ️ 该客户端的Codex服务未运行"}
                 else:
-                    if not self.managers:
+                    with self.managers_lock:
+                        managers = list(self.managers.items())
+                    if not managers:
                         return {"success": True, "response": "ℹ️ 当前没有活动的Codex客户端"}
                     summary_lines = ["📊 当前活动的Codex客户端:"]
-                    for cid, manager in self.managers.items():
+                    for cid, manager in managers:
                         status = "运行中" if manager.codex_active else "未激活"
                         summary_lines.append(
                             f"• {cid}: {status} (Instance: {manager.instance_id or 'N/A'})"
@@ -283,7 +336,9 @@ class CodexDaemon:
             elif command == '/codex-health':
                 uptime = time.time() - self.start_time if hasattr(self, 'start_time') else 0
                 clients = []
-                for cid, manager in self.managers.items():
+                with self.managers_lock:
+                    managers = list(self.managers.items())
+                for cid, manager in managers:
                     info = {
                         "client_id": cid,
                         "codex_active": manager.codex_active,
@@ -323,19 +378,23 @@ class CodexDaemon:
                 if manager and manager.codex_active:
                     instance_id = manager.instance_id
                     manager.claude_cleanup_on_exit()
+                    with self.managers_lock:
+                        self.managers.pop(client_id, None)
                     return {"success": True, "response": f"✅ Codex服务已停止 (实例ID: {instance_id})"}
                 else:
                     return {"success": True, "response": "ℹ️ Codex服务未运行"}
 
             elif command == '/codex-shutdown':
                 # 完全停止守护进程
-                for manager in list(self.managers.values()):
+                with self.managers_lock:
+                    managers = list(self.managers.values())
+                    self.managers.clear()
+                for manager in managers:
                     try:
                         if manager.codex_active:
                             manager.claude_cleanup_on_exit()
                     except Exception:
                         pass
-                self.managers.clear()
 
                 self.running = False
 
@@ -362,7 +421,10 @@ class CodexDaemon:
             self.server_socket.close()
 
         # 停止Codex服务
-        for manager in list(self.managers.values()):
+        with self.managers_lock:
+            managers = list(self.managers.values())
+            self.managers.clear()
+        for manager in managers:
             try:
                 if manager.codex_active:
                     manager.claude_cleanup_on_exit()
