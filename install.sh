@@ -2,8 +2,24 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_PREFIX="${CODEX_INSTALL_PREFIX:-$HOME/.local/share/claude-codex-lock}"
-DEFAULT_BIN_DIR="${CODEX_BIN_DIR:-$HOME/.local/bin}"
+# 规范化源目录，避免符号链接导致的自我删除
+SOURCE_ROOT="$(cd "$REPO_ROOT" && pwd -P)"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "❌ 本安装脚本需要管理员权限，请使用 sudo ./install.sh install" >&2
+  exit 1
+fi
+
+TARGET_USER="${SUDO_USER:-$(id -un)}"
+TARGET_HOME="$(eval echo "~${TARGET_USER}")"
+if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
+  echo "❌ 无法解析目标用户 $TARGET_USER 的家目录" >&2
+  exit 1
+fi
+TARGET_HOME="${TARGET_HOME%/}"
+TARGET_CHOWN="${TARGET_USER}:${TARGET_USER}"
+DEFAULT_PREFIX="${CODEX_INSTALL_PREFIX:-$TARGET_HOME/.local/share/claude-codex-lock}"
+DEFAULT_BIN_DIR="${CODEX_BIN_DIR:-$TARGET_HOME/.local/bin}"
 
 usage() {
   cat <<'USAGE'
@@ -25,9 +41,9 @@ detect_claude_command_dir() {
   fi
 
   local candidates=(
-    "$HOME/.config/claude/commands"
-    "$HOME/.claude/commands"
-    "$HOME/.local/share/claude/commands"
+    "$TARGET_HOME/.config/claude/commands"
+    "$TARGET_HOME/.claude/commands"
+    "$TARGET_HOME/.local/share/claude/commands"
   )
 
   for dir in "${candidates[@]}"; do
@@ -37,14 +53,59 @@ detect_claude_command_dir() {
     fi
   done
 
-  local fallback="$HOME/.claude/commands"
+  local fallback="$TARGET_HOME/.claude/commands"
   mkdir -p "$fallback"
   echo "$fallback"
 }
 
+fix_tmp_permissions() {
+  local current_mode
+  current_mode="$(stat -c '%a' /tmp 2>/dev/null || echo '')"
+
+  if [[ "$current_mode" != "1777" ]]; then
+    echo "🔧 调整 /tmp 权限为 1777"
+    chmod 1777 /tmp
+  fi
+
+  local current_owner
+  current_owner="$(stat -c '%u:%g' /tmp 2>/dev/null || echo '')"
+  if [[ "$current_owner" != "0:0" ]]; then
+    echo "🔧 调整 /tmp 所有者为 root:root"
+    chown root:root /tmp
+  fi
+}
+
+prepare_runtime_dirs() {
+  local runtime_tmp="/tmp/codex-$TARGET_USER"
+  local runtime_home="$TARGET_HOME/.codex_runtime"
+
+  mkdir -p "$runtime_tmp"
+  chown "$TARGET_CHOWN" "$runtime_tmp"
+  chmod 700 "$runtime_tmp"
+
+  mkdir -p "$runtime_home"
+  chown "$TARGET_CHOWN" "$runtime_home"
+  chmod 700 "$runtime_home"
+}
+
 copy_project_files() {
   local prefix="$1"
-  rm -rf "$prefix"
+  local target_root=""
+  if [[ -d "$prefix" ]]; then
+    target_root="$(cd "$prefix" && pwd -P)"
+  fi
+
+  if [[ -n "$target_root" && "$SOURCE_ROOT" == "$target_root" ]]; then
+    echo "❌ 安装源与目标目录相同: $SOURCE_ROOT" >&2
+    echo "   请在源码仓库目录中执行 ./install.sh install，再次安装。" >&2
+    exit 1
+  fi
+
+  if ! rm -rf "$prefix"; then
+    echo "❌ 无法清理旧的安装目录: $prefix" >&2
+    echo "   请确认具备写权限，或手动删除该目录后重试。" >&2
+    exit 1
+  fi
   mkdir -p "$prefix"
 
   if command -v rsync >/dev/null 2>&1; then
@@ -62,6 +123,8 @@ copy_project_files() {
       --exclude '.pytest_cache' \
       -cf - . | tar -C "$prefix" -xf -
   fi
+
+  chown -R "$TARGET_CHOWN" "$prefix"
 }
 
 create_bin_links() {
@@ -69,8 +132,10 @@ create_bin_links() {
   local bin_dir="$2"
 
   mkdir -p "$bin_dir"
+  chown "$TARGET_CHOWN" "$bin_dir"
   ln -sf "$prefix/claude-codex" "$bin_dir/claude-codex"
   ln -sf "$prefix/install.sh" "$bin_dir/claude-codex-install"
+  chown -h "$TARGET_CHOWN" "$bin_dir/claude-codex" "$bin_dir/claude-codex-install"
 }
 
 create_claude_command() {
@@ -79,6 +144,7 @@ create_claude_command() {
   local command_path="$claude_dir/codex"
 
   mkdir -p "$claude_dir"
+  chown "$TARGET_CHOWN" "$claude_dir"
   cat >"$command_path" <<'CMD'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -116,11 +182,13 @@ PY
 CMD
   sed -i "s|PREFIX_PLACEHOLDER|$prefix|" "$command_path"
   chmod +x "$command_path"
+  chown "$TARGET_CHOWN" "$command_path"
 
   for doc in "$prefix"/commands/codex-*.md; do
     if [[ -f "$doc" ]]; then
       cp "$doc" "$claude_dir/$(basename "$doc")"
       chmod 644 "$claude_dir/$(basename "$doc")"
+      chown "$TARGET_CHOWN" "$claude_dir/$(basename "$doc")"
     fi
   done
 }
@@ -131,9 +199,13 @@ install_codex() {
   local claude_dir
   claude_dir="$(detect_claude_command_dir)"
 
+  echo "👤 目标用户: $TARGET_USER ($TARGET_HOME)"
   echo "📦 安装目录: $prefix"
   echo "🛠️  可执行目录: $bin_dir"
   echo "🔗 Claude 命令目录: $claude_dir"
+
+  fix_tmp_permissions
+  prepare_runtime_dirs
 
   copy_project_files "$prefix"
   create_bin_links "$prefix" "$bin_dir"

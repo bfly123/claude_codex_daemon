@@ -18,7 +18,7 @@ from pathlib import Path
 
 class ClaudeCodexWrapper:
     def __init__(self):
-        self.script_dir = Path(__file__).parent.absolute()
+        self.script_dir = Path(__file__).resolve().parent
         self.daemon_path = self.script_dir / "codex_daemon.py"
 
         runtime_root = self._select_runtime_root()
@@ -84,10 +84,13 @@ class ClaudeCodexWrapper:
             sock.close()
             return True
         except socket.timeout:
+            print("⚠️ 检测守护进程超时")
             return False
-        except socket.error:
+        except socket.error as exc:
+            print(f"⚠️ 检测守护进程失败: {exc}")
             return False
-        except Exception:
+        except Exception as exc:
+            print(f"⚠️ 检测守护进程异常: {exc}")
             return False
 
     def start_daemon(self):
@@ -100,17 +103,21 @@ class ClaudeCodexWrapper:
 
         try:
             # 后台启动守护进程
+            env = os.environ.copy()
+            env.setdefault("CODEX_DAEMON_MODE", "1")
+            env.setdefault("CODEX_RUNTIME_DIR", str(self.runtime_root))
+
             cmd = [
                 "python3", str(self.daemon_path),
-                "--socket", self.socket_path,
-                "--daemon"
+                "--socket", self.socket_path
             ]
 
             self.daemon_process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                start_new_session=True  # 创建新的进程组
+                start_new_session=True,  # 创建新的进程组
+                env=env,
             )
 
             # 等待守护进程启动
@@ -122,6 +129,19 @@ class ClaudeCodexWrapper:
                 time.sleep(1)
                 if i == 3:  # 3秒后提示用户
                     print("⏳ 等待Codex服务启动...")
+
+            if self.daemon_process and self.daemon_process.poll() is None and os.path.exists(self.socket_path):
+                print("⚠️ 守护进程响应缓慢，但Socket已创建，继续启动")
+                return True
+
+            # 如果存在stderr输出，帮助诊断
+            if self.daemon_process and self.daemon_process.stderr:
+                try:
+                    err_output = self.daemon_process.stderr.read().strip()
+                    if err_output:
+                        print(f"❗ 守护进程输出: {err_output}")
+                except Exception:
+                    pass
 
             print("❌ Codex守护进程启动超时")
             return False

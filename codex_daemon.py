@@ -516,6 +516,30 @@ def signal_handler(signum, frame):
 
 def background_fork(pid_file="/tmp/codex-daemon.pid"):
     """简单的后台fork，不依赖daemon库"""
+    global logger
+    if os.environ.get("CODEX_SKIP_DAEMON_FORK") == "1":
+        # 在某些受限环境（如沙箱或子进程已重定向stdout/stderr）中，
+        # 双重fork可能失败或导致父进程等待。允许跳过fork，
+        # 仅执行守护模式必需的重定向与日志配置。
+        devnull_fd = os.open(os.devnull, os.O_RDWR)
+        try:
+            os.dup2(devnull_fd, sys.stdin.fileno())
+        except Exception:
+            pass
+        try:
+            os.dup2(devnull_fd, sys.stdout.fileno())
+        except Exception:
+            pass
+        try:
+            os.dup2(devnull_fd, sys.stderr.fileno())
+        except Exception:
+            pass
+        if devnull_fd > 2:
+            os.close(devnull_fd)
+        os.environ.setdefault('CODEX_DAEMON_MODE', '1')
+        logger = setup_logging(daemon_mode=True)
+        return True
+
     try:
         # 第一次fork
         pid = os.fork()
@@ -559,7 +583,6 @@ def background_fork(pid_file="/tmp/codex-daemon.pid"):
         os.close(devnull_fd)
 
     # 重新初始化日志系统以使用新的 stdout/stderr
-    global logger
     logger = setup_logging(daemon_mode=True)
 
     return True

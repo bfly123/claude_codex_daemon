@@ -44,10 +44,10 @@ codex_process.py
    ```bash
    git clone <项目地址>
    cd claude_codex_lock
-   ./install.sh install        # 安装
+   sudo ./install.sh install        # 安装（默认写入原 sudo 用户的家目录）
 
    # 卸载（任选其一）
-   ./install.sh uninstall
+   sudo ./install.sh uninstall
    claude-codex-install uninstall
    ```
    默认会将项目安装到 `~/.local/share/claude-codex-lock`，并创建以下链接：
@@ -55,9 +55,9 @@ codex_process.py
    - `~/.local/bin/claude-codex-install`：全局安装/卸载入口
    - `~/.claude/commands/codex`（如不存在则自动创建）：在 Claude 中可直接使用 `/codex-*` 命令
 
-   可通过环境变量定制：
-   - `CODEX_INSTALL_PREFIX`：安装目录
-   - `CODEX_BIN_DIR`：bin 目录
+   脚本要求使用 `sudo` 运行，并会自动识别 `SUDO_USER` 将文件安装/链接到该用户的家目录。可通过环境变量定制：
+   - `CODEX_INSTALL_PREFIX`：安装目录（默认：`~/.local/share/claude-codex-lock`，`~` 为原 sudo 用户）
+   - `CODEX_BIN_DIR`：bin 目录（默认：`~/.local/bin`）
    - `CODEX_CLAUDE_COMMAND_DIR`：Claude 命令目录
 
 3. **启动守护进程并运行 Claude Code**
