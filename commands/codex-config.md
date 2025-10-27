@@ -4,6 +4,10 @@
 - /codex-config                    # 查看当前配置
 - /codex-config <high|default|low> # 切换性能模式
 
+执行要求:
+- Claude 执行此命令时，仅需运行 `codex-config [参数]`（或 `codex-config`）并直接返回命令输出
+- 不要执行额外的检查、规划或调用其它脚本
+
 这个命令会:
 1. 显示当前配置状态（无参数时）
 2. 切换AI模型的性能档位（有参数时）
@@ -32,14 +36,12 @@ Profile模式:
 - Output Format: 控制输出详细程度
 - Instance ID: 当前实例的唯一标识符
 
-前置条件:
-- 需要先执行 /codex-start 启动服务
-
 示例:
 /codex-config                           # 查看当前配置
 /codex-config high                      # 切换到高性能模式
 /codex-config default                   # 切换到平衡模式
 /codex-config low                       # 切换到快速模式
+命令行快捷: `codex-config high` （可配合 --client-id <ID> 复用会话）
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-config high'))"
+codex-config high

@@ -88,6 +88,33 @@ prepare_runtime_dirs() {
   chmod 700 "$runtime_home"
 }
 
+install_python_bootstrap() {
+  local prefix="$1"
+  local user_site
+
+  user_site=$(runuser -u "$TARGET_USER" -- python3 - <<'PY' 2>/dev/null || true
+import site
+print(site.getusersitepackages())
+PY
+)
+
+  if [[ -z "$user_site" ]]; then
+    echo "⚠️ 无法获取 Python 用户 site-packages 路径，跳过自动注入"
+    return
+  fi
+
+  mkdir -p "$user_site"
+  chown "$TARGET_CHOWN" "$user_site"
+
+  local pth_file="$user_site/claude_codex.pth"
+  cat >"$pth_file" <<EOF
+$prefix
+import codex_bootstrap
+EOF
+  chmod 644 "$pth_file"
+  chown "$TARGET_CHOWN" "$pth_file"
+}
+
 copy_project_files() {
   local prefix="$1"
   local target_root=""
@@ -136,6 +163,25 @@ create_bin_links() {
   ln -sf "$prefix/claude-codex" "$bin_dir/claude-codex"
   ln -sf "$prefix/install.sh" "$bin_dir/claude-codex-install"
   chown -h "$TARGET_CHOWN" "$bin_dir/claude-codex" "$bin_dir/claude-codex-install"
+
+  chmod +x "$prefix/codex_cli.py"
+  chown "$TARGET_CHOWN" "$prefix/codex_cli.py"
+
+  ln -sf "$prefix/codex_cli.py" "$bin_dir/codex-cli"
+  chown -h "$TARGET_CHOWN" "$bin_dir/codex-cli"
+
+  local cli_aliases=(
+    codex-ask
+    codex-status
+    codex-stop
+    codex-config
+    codex-reasoning
+    codex-final_only
+  )
+  for alias in "${cli_aliases[@]}"; do
+    ln -sf "$prefix/codex_cli.py" "$bin_dir/$alias"
+    chown -h "$TARGET_CHOWN" "$bin_dir/$alias"
+  done
 }
 
 create_claude_command() {
@@ -210,6 +256,7 @@ install_codex() {
   copy_project_files "$prefix"
   create_bin_links "$prefix" "$bin_dir"
   create_claude_command "$prefix" "$claude_dir"
+  install_python_bootstrap "$prefix"
 
   chmod +x "$prefix/claude-codex"
   chmod +x "$prefix/install.sh"
@@ -224,11 +271,23 @@ uninstall_codex() {
   local bin_dir="$DEFAULT_BIN_DIR"
   local claude_dir
   claude_dir="$(detect_claude_command_dir)"
+  local user_site
+  user_site=$(runuser -u "$TARGET_USER" -- python3 - <<'PY' 2>/dev/null || true
+import site
+print(site.getusersitepackages())
+PY
+)
 
   echo "🧹 开始卸载 claude-codex..."
-  rm -f "$bin_dir/claude-codex" "$bin_dir/claude-codex-install"
+  rm -f "$bin_dir/claude-codex" "$bin_dir/claude-codex-install" \
+        "$bin_dir/codex-cli" "$bin_dir/codex-ask" "$bin_dir/codex-status" \
+        "$bin_dir/codex-stop" "$bin_dir/codex-config" "$bin_dir/codex-reasoning" \
+        "$bin_dir/codex-final_only"
   rm -f "$claude_dir/codex"
   rm -rf "$prefix"
+  if [[ -n "$user_site" ]]; then
+    rm -f "$user_site/claude_codex.pth"
+  fi
   echo "✅ 卸载完成。"
 }
 

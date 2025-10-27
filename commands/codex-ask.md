@@ -2,6 +2,10 @@
 
 使用方式: /codex-ask <问题>
 
+执行要求:
+- Claude执行此命令时，请直接调用 `/codex-ask` 并输出 Codex 返回的内容即可
+- 不需要规划、复述步骤或生成额外上下文说明，不需要输出返回内容，因为bash已经包含
+
 这个命令会:
 1. 检查Codex服务是否已启动
 2. 通过socket向Codex进程发送问题
@@ -11,10 +15,6 @@
 
 参数:
 - 问题 (必需): 要向Codex询问的问题或任务描述
-
-前置条件:
-- 需要先执行 /codex-start 启动服务
-- Codex进程正常运行
 
 功能特性:
 - 自动重试机制：通信失败时最多重试3次
@@ -26,6 +26,7 @@
 /codex-ask 解释一下量子计算的基本原理
 /codex-ask 帮我写一个Python函数计算斐波那契数列
 /codex-ask 分析这段代码的性能瓶颈
+命令行快捷: `codex-ask "解释一下量子计算的基本原理"` （可配合 --client-id <ID> 复用会话）
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-ask 你的问题'))"
+codex-ask "你的问题"

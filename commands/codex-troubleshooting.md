@@ -17,24 +17,22 @@
 
 #### 方案A：Python 无缓冲模式（推荐）
 ```bash
-python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+codex-status
 ```
 
 #### 方案B：stdbuf 强制无缓冲
 ```bash
-stdbuf -o0 -e0 python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+stdbuf -o0 -e0 codex-status
 ```
 
 #### 方案C：Python 代码内配置
 ```bash
-python3 -c "
-import sys
+python3 - <<'PY'
+import sys, codex_bootstrap
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
-from codex_commands import handle_codex_command
-result = handle_codex_command('/codex-start')
-print('启动结果:', result, flush=True)
-"
+print(handle_codex_command('/codex-status'))
+PY
 ```
 
 ### 2. 进程冗余和资源占用
@@ -60,7 +58,7 @@ pkill -f "python.*codex"
 rm -rf /tmp/codex-*/
 
 # 重新启动
-python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+claude-codex
 ```
 
 ### 3. Socket 连接失败
@@ -79,9 +77,9 @@ ls -la /tmp/codex-*/
 **解决方案**:
 ```bash
 # 完全重建服务
-from codex_commands import handle_codex_command
-print(handle_codex_command('/codex-stop'))
-print(handle_codex_command('/codex-start'))
+codex-stop
+codex-status
+# 在终端重新执行 claude-codex 以拉起守护进程
 ```
 
 ### 4. 配置丢失或异常
@@ -90,13 +88,13 @@ print(handle_codex_command('/codex-start'))
 
 **检查方法**:
 ```bash
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-status'))"
+codex-status
 ```
 
 **解决方案**:
 ```bash
 # 重置到默认配置
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-config default'))"
+codex-config default
 ```
 
 ## 预防措施
@@ -104,7 +102,7 @@ python3 -c "from codex_commands import handle_codex_command; print(handle_codex_
 ### 1. 正确关闭流程
 结束使用时执行：
 ```bash
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-stop'))"
+codex-stop
 ```
 
 ### 2. 定期清理
@@ -122,12 +120,12 @@ pkill -f "node.*codex" && rm -rf /tmp/codex-*/
 
 **终端环境**:
 ```bash
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+claude-codex
 ```
 
 **Claude Code 环境**:
 ```bash
-python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+codex-status
 ```
 
 ## 性能优化
@@ -172,8 +170,8 @@ cd /home/bfly/运维/基本问题
 
 ### 步骤2：执行测试命令
 ```bash
-# 使用无缓冲模式
-python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+# 启动守护进程并观察输出
+claude-codex
 ```
 
 ### 步骤3：验证启动结果
@@ -222,7 +220,7 @@ ps aux | grep codex
 ls -la /tmp/codex-*/
 
 # 4. 重新启动
-python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+claude-codex
 ```
 
 ## 技术细节

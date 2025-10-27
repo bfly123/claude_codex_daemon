@@ -208,7 +208,7 @@ def handle_codex_command(command: str) -> str:
 
     # 废弃 codex-start 相关命令，返回提示信息
     if command.startswith("/codex-start"):
-        return "❌ codex-start 已废弃，请直接使用 claude-codex 启动服务"
+        return 'ℹ️ 守护进程由 claude-codex 自动管理，无需执行此命令。'
 
     client = get_client()
     return client.handle_command(command)

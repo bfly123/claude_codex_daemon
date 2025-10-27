@@ -2,6 +2,10 @@
 
 使用方式: /codex-final_only <on|off>
 
+执行要求:
+- Claude 执行此命令时，仅需运行 `codex-final_only <on|off>` 并返回命令输出
+- 不要额外执行其它脚本或步骤
+
 这个命令会:
 1. 切换输出格式控制开关
 2. 实时更新Codex进程配置
@@ -33,17 +37,14 @@ final_with_details模式:
 - 调试问题时可以设为 off，获取更多上下文
 - 日常对话推荐使用 on 模式
 
-前置条件:
-- 需要先执行 /codex-start 启动服务
-- Codex进程正常运行
-
 示例:
 /codex-final_only on   # 仅输出最终答案（推荐）
 /codex-final_only off  # 返回额外细节信息（调试用）
+命令行快捷: `codex-final_only on` （可配合 --client-id <ID> 复用会话）
 
 输出示例:
 ✅ Output Format 已切换为 final_only（推荐开启以避免额外噪音）
 ✅ Output Format 已切换为 final_with_details（将返回额外细节信息）
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-final_only on'))"
+codex-final_only on

@@ -315,11 +315,9 @@ class CodexDaemon:
 
             elif command == '/codex-status':
                 if client_id:
-                    manager = self._get_manager(client_id)
-                    if manager:
-                        result = manager.show_status()
-                        return {"success": True, "response": result}
-                    return {"success": True, "response": "ℹ️ 该客户端的Codex服务未运行"}
+                    manager = self._get_or_create_manager(client_id)
+                    result = manager.show_status()
+                    return {"success": True, "response": result}
                 else:
                     with self.managers_lock:
                         managers = list(self.managers.items())

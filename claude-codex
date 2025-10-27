@@ -31,6 +31,7 @@ class ClaudeCodexWrapper:
         self.claude_process = None
         self.client_id = os.environ.get("CODEX_CLIENT_ID") or f"codex-client-{uuid.uuid4().hex[:10]}"
         self.runtime_root = runtime_root
+        self.active_client_file = self.runtime_root / "active_client_id"
 
     def _select_runtime_root(self):
         candidates = []
@@ -234,6 +235,11 @@ class ClaudeCodexWrapper:
         env["CODEX_DAEMON_PID"] = str(self.pid_file)
 
         try:
+            try:
+                self.active_client_file.write_text(self.client_id, encoding="utf-8")
+            except Exception:
+                pass
+
             print(f"执行: {' '.join(claude_cmd)}")
             # 对于交互模式，需要继承stdin/stdout/stderr
             self.claude_process = subprocess.run(
@@ -256,6 +262,11 @@ class ClaudeCodexWrapper:
         """清理资源"""
         print("\n🧹 清理资源...")
         self.stop_daemon()
+        if self.active_client_file.exists():
+            try:
+                self.active_client_file.unlink()
+            except Exception:
+                pass
         print("✅ 清理完成")
 
     def run(self):

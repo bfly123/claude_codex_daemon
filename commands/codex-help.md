@@ -11,13 +11,12 @@
 参数:
 无
 
+服务管理:
+- Codex守护进程由 `claude-codex` 自动启动与重连，无需额外的手动启动命令
+
 命令列表:
 
 基础命令:
-• /codex-start
-  - 说明: 启动或重新连接Codex进程，自动生成专属socket和实例ID
-  - 使用: 首次对话前执行一次即可，如已运行会返回当前状态
-
 • /codex-ask <问题>
   - 说明: 向当前Codex实例发起提问，自动携带当前模型强度/输出配置
   - 使用: `/codex-ask 解释一下数据库分片`
@@ -48,7 +47,7 @@
   - 使用: 获取命令说明和使用指导
 
 使用工作流:
-1. 首次使用 → /codex-start
+1. 打开终端运行 `claude-codex`（守护进程会自动启动并保持运行）
 2. 日常查询 → /codex-ask <问题>
 3. 配置调节 → /codex-config <档位>
 4. 状态检查 → /codex-status
@@ -57,23 +56,23 @@
 维护建议:
 1. 需要撤回最近一轮或清理上下文时，可结合 Claude 的 /rewind 或 /clear
 2. 切换档位后如遇回答异常，优先执行 `/codex-config` 查看当前状态
-3. 若长时间未用，建议 `/codex-stop` 后再 `/codex-start` 以释放资源
-4. 遇到通信错误时，尝试重启服务：/codex-stop → /codex-start
+3. 若长时间未用，建议 `/codex-stop` 后重新运行 `claude-codex` 以释放资源并拉起新实例
+4. 遇到通信错误时，尝试重启服务：/codex-stop → 在终端执行 `claude-codex`
 
 故障排除:
 • Claude Code 中启动卡顿
   - 原因：输出缓冲区问题导致异步输出延迟显示
   - 解决：使用 python3 -u 参数或 stdbuf 命令
-  - 示例：python3 -u -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-start'))"
+  - 示例：codex-status
 
 • 进程异常退出
   - 检查：ps aux | grep codex
   - 清理：pkill -f "codex" && rm -rf /tmp/codex-*
-  - 重启：/codex-start
+  - 重启：在终端执行 `claude-codex`
 
 • Socket 连接失败
   - 检查：ls -la /tmp/codex-*/
-  - 重建：/codex-stop → /codex-start
+  - 重建：/codex-stop → 在终端执行 `claude-codex`
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-help'))"
+codex-help

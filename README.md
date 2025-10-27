@@ -64,9 +64,15 @@ codex_process.py
    ```bash
    claude-codex
    ```
-   - 守护进程默认使用 `~/.codex_runtime/codex-daemon.sock`，适配多数受限环境。
-   - 首次启动会分配一个随机 `CODEX_CLIENT_ID` 并写入子进程环境。
-   - 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude-codex`。
+- 守护进程默认使用 `~/.codex_runtime/codex-daemon.sock`，适配多数受限环境。
+- 首次启动会分配一个随机 `CODEX_CLIENT_ID` 并写入子进程环境。
+- 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude-codex`。
+
+   安装时会在 `~/.local/bin` 额外提供下列命令，方便在终端直接操作 Codex：
+   - `codex-cli <subcommand>`：统一入口，支持 `ask`、`status`、`stop`、`config`、`reasoning`、`final-only` 等子命令。
+   - `codex-ask` / `codex-status` / `codex-stop` / `codex-config` / `codex-reasoning` / `codex-final_only`：分别对应常用操作，可直接简写使用。
+   - 例如：`codex-ask "who are you"`、`codex-config high`、`codex-status`。
+   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID` 或在命令附加 `--client-id <ID>`。
 
 4. **在 Claude Code 中使用命令**
    ```
@@ -170,6 +176,7 @@ claude-codex
 - 对话历史默认保留最近 200 轮，可在 `codex_process.py` 内调整。
 - `_save_history` 使用安全写入策略（`O_NOFOLLOW`、权限 0600），修改时注意保持安全性。
 - 所有 CLI 调用默认 `--sandbox read-only`，如需写权限请在调用层扩展。
+- 安装脚本会在用户 `site-packages` 中写入 `.pth` 文件并自动导入 `codex_bootstrap`，因此可以直接使用 `python3 -c "print(handle_codex_command('/codex-config high'))"` 等命令（若使用自定义 Python 环境，请确保其能够读取用户级 `site-packages`），无需手动 import 或设置 `PYTHONPATH`。
 
 ---
 

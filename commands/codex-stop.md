@@ -2,6 +2,10 @@
 
 使用方式: /codex-stop
 
+执行要求:
+- Claude 执行此命令时，仅需运行 `codex-stop` 并返回命令输出
+- 不要执行额外的清理脚本或附加步骤
+
 这个命令会:
 1. 向Codex子进程发送终止信号
 2. 等待子进程优雅退出
@@ -34,6 +38,7 @@
 
 示例:
 /codex-stop
+命令行快捷: `codex-stop` （可配合 --client-id <ID> 复用会话）
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-stop'))"
+codex-stop

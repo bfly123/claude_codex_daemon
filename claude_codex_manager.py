@@ -598,6 +598,11 @@ class ClaudeCodexManager:
             "codex_pid": self.codex_pid
         }
 
+    def _ensure_active(self):
+        if not self.codex_active:
+            self.auto_activate_on_first_use()
+        return self.codex_active
+
     def get_current_config(self):
         return {
             "profile": self.current_profile,
@@ -620,8 +625,8 @@ class ClaudeCodexManager:
         return []
 
     def _send_config_command(self, payload):
-        if not self.codex_active:
-            return {"status": "error", "message": "Codex未激活"}
+        if not self._ensure_active():
+            return {"status": "error", "message": "Codex服务启动失败"}
 
         command = {
             "instance_id": self.instance_id,
@@ -646,8 +651,8 @@ class ClaudeCodexManager:
         if normalized not in aliases:
             return "❌ 无效参数，请使用: high、default、low"
 
-        if not self.codex_active:
-            return "❌ Codex服务未激活，请先运行 /codex-start"
+        if not self._ensure_active():
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
 
         response = self._send_config_command(
             {"action": "set_profile", "profile": aliases[normalized]}
@@ -662,8 +667,8 @@ class ClaudeCodexManager:
         if state_token not in ["on", "off"]:
             return "❌ 参数错误，使用 on 或 off"
 
-        if not self.codex_active:
-            return "❌ Codex服务未激活，请先运行 /codex-start"
+        if not self._ensure_active():
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
 
         target = state_token == "on"
         response = self._send_config_command(
@@ -680,8 +685,8 @@ class ClaudeCodexManager:
         if state_token not in ["on", "off"]:
             return "❌ 参数错误，使用 on 或 off"
 
-        if not self.codex_active:
-            return "❌ Codex服务未激活，请先运行 /codex-start"
+        if not self._ensure_active():
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
 
         target = "final_only" if state_token == "on" else "final_with_details"
         response = self._send_config_command(
@@ -694,23 +699,30 @@ class ClaudeCodexManager:
         return f"❌ 设置失败: {response.get('message', '未知错误')}"
 
     def show_config(self):
+        if not self._ensure_active():
+            return '❌ Codex服务启动失败，请检查守护进程日志'
         cfg = self.get_current_config()
         reasoning_flag = "on" if cfg["show_reasoning"] else "off"
         output_flag = cfg["output_format"]
         output_desc = "final_only" if output_flag == "final_only" else "final_with_details"
         self.touch()
-        return (
-            "📋 当前配置:\n"
-            f"• Profile: {cfg['profile']} ({self._describe_profile(cfg['profile'])})\n"
-            f"• Instance ID: {cfg.get('instance_id') or '尚未创建（服务未激活）'}\n"
-            f"• Show Reasoning: {reasoning_flag}  (on=输出推理摘要；off=仅内部使用)\n"
-            f"• Output Format: {output_desc}  (final_only=只输出最终答案)\n"
-            f"• 历史轮次: {cfg['conversation_count']}"
-        )
+        lines = [
+            "📋 当前配置:",
+            f"• Profile: {cfg['profile']} ({self._describe_profile(cfg['profile'])})",
+        ]
+        if cfg.get("instance_id"):
+            lines.append(f"• Instance ID: {cfg['instance_id']}")
+            lines.append(f"• 历史轮次: {cfg['conversation_count']}")
+        else:
+            lines.append("• Instance ID: 尚未创建（首次执行 /codex-ask 或 /codex-status 即可生成）")
+            lines.append("• 历史轮次: 0")
+        lines.append(f"• Show Reasoning: {reasoning_flag}  (on=输出推理摘要；off=仅内部使用)")
+        lines.append(f"• Output Format: {output_desc}  (final_only=只输出最终答案)")
+        return "\n".join(lines)
 
     def show_status(self):
-        if not self.codex_active:
-            return "❌ Codex服务未运行"
+        if not self._ensure_active():
+            return '❌ Codex服务启动失败，请检查守护进程日志'
 
         status = self.get_detailed_status()
         self.touch()

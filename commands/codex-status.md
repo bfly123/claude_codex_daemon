@@ -2,6 +2,10 @@
 
 使用方式: /codex-status
 
+执行要求:
+- Claude 执行此命令时，仅需运行 `codex-status` 并返回命令输出
+- 不要额外做检测、读取文件或执行其它脚本
+
 这个命令会:
 1. 检查Codex服务是否运行
 2. 显示实例基本信息
@@ -31,6 +35,7 @@
 
 示例:
 /codex-status
+命令行快捷: `codex-status` （可配合 --client-id <ID> 复用会话）
 
 输出示例:
 ✅ Codex服务运行中:
@@ -43,4 +48,4 @@
 • Socket: /tmp/codex-user/codex-26a62163-12345.sock
 
 调用方式:
-python3 -c "from codex_commands import handle_codex_command; print(handle_codex_command('/codex-status'))"
+codex-status
