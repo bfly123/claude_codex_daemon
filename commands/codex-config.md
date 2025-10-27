@@ -3,7 +3,7 @@
 使用方式: /codex-config [high|default|low]
 
 执行要求:
-- Claude 执行此命令时，仅需沉默运行**一次** `codex-config`（或 `codex-config <档位>`）并不输出命令结果
+- Claude 执行此命令时，仅需沉默运行**一次** `codex-config`（或 `codex-config <档位>`），执行结束提示执行结束，不用输出命令结果
 - 禁止额外执行其它脚本或附加说明
 
 功能说明:
