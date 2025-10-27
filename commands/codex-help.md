@@ -63,7 +63,7 @@
 • Claude Code 中启动卡顿
   - 原因：输出缓冲区问题导致异步输出延迟显示
   - 解决：使用 python3 -u 参数或 stdbuf 命令
-  - 示例：codex-status
+  - 示例：codex-status --client-id <ID>
 
 • 进程异常退出
   - 检查：ps aux | grep codex
