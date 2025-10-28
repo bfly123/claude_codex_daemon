@@ -3,7 +3,7 @@
 使用方式: /codex-final_only <on|off>
 
 执行要求:
-- Claude 执行此命令时，仅需沉默运行 `codex-final_only <on|off>` 并不输出命令结果
+- Claude 执行此命令时，仅需沉默运行 `codex-final_only <on|off>`，不输出命令结果
 - 禁止额外执行其它脚本或附加说明
 
 功能说明:
@@ -11,3 +11,4 @@
 - off: 返回附带细节
 
 命令行快捷: `codex-final_only` （可配合 --client-id <ID> 复用会话）
+

@@ -1,0 +1,45 @@
+#!/bin/bash
+# Claude-Codex 双窗口模式 ping命令简化版
+
+SCRIPT_DIR="/home/bfly/运维/基本问题"
+
+# 检查是否有活动会话
+if [ ! -f "./.codex-session" ]; then
+    echo "❌ 未找到活动会话，请先启动双窗口模式"
+    echo "💡 启动命令: $SCRIPT_DIR/claude-codex-dual-simple"
+    exit 1
+fi
+
+# 读取会话信息
+SESSION_ID=$(cat "./.codex-session" | python3 -c "import sys, json; print(json.load(sys.stdin)['session_id'])")
+RUNTIME_DIR="/tmp/codex-bfly/$SESSION_ID"
+PID_FILE="$RUNTIME_DIR/codex.pid"
+TMUX_SESSION=$(cat "./.codex-session" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('tmux_session', 'unknown'))")
+
+echo "📊 会话状态:"
+echo "   会话ID: $SESSION_ID"
+echo "   运行目录: $RUNTIME_DIR"
+echo "   tmux会话: $TMUX_SESSION"
+
+# 检查PID文件
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "   Codex进程: 运行中 (PID: $PID)"
+        echo "✅ 连接正常"
+
+        # 检查tmux会话
+        if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+            echo "   tmux会话: 运行中"
+        else
+            echo "⚠️ tmux会话未运行"
+        fi
+    else
+        echo "   Codex进程: 已停止 (PID: $PID)"
+        echo "❌ 连接异常"
+        exit 1
+    fi
+else
+    echo "❌ PID文件不存在"
+    exit 1
+fi

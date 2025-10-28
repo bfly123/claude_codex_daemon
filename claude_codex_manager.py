@@ -288,6 +288,7 @@ class ClaudeCodexManager:
 
         # 轻量级检查：先检查文件名是否包含当前PID，如果有则优先处理
         pid_pattern = f"codex-*-{current_claude_pid}-history.json"
+        allow_pid_mismatch = os.environ.get("CODEX_FORCE_RESUME") == "1"
         current_pid_files = []
         other_pid_files = []
 
@@ -331,9 +332,16 @@ class ClaudeCodexManager:
             # 检查Claude父进程ID是否匹配（关键：实例隔离）
             saved_claude_pid = data.get("claude_parent_pid")
             if saved_claude_pid and saved_claude_pid != current_claude_pid:
-                dprint(f"[Codex Recovery] 跳过文件 {file_path}: Claude PID不匹配 "
-                      f"(保存: {saved_claude_pid}, 当前: {current_claude_pid})")
-                return None
+                if allow_pid_mismatch:
+                    data["claude_parent_pid"] = current_claude_pid
+                    try:
+                        with open(file_path, 'w') as fh:
+                            json.dump(data, fh, indent=2)
+                    except Exception as exc:
+                        dprint(f"[Codex Recovery] 更新历史文件的 Claude PID 失败: {exc}")
+                else:
+                    dprint(f"[Codex Recovery] 跳过文件 {file_path}: Claude PID不匹配 (保存: {saved_claude_pid}, 当前: {current_claude_pid})")
+                    return None
 
             saved_client_id = data.get("client_id")
             if self.client_id:
@@ -475,7 +483,12 @@ class ClaudeCodexManager:
 
     def _run_codex_child_process(self):
         from codex_process import CodexProcess
-        codex = CodexProcess(self.socket_path, self.instance_id, client_id=self.client_id)
+        codex = CodexProcess(
+            self.socket_path,
+            self.instance_id,
+            client_id=self.client_id,
+            history_dir=self.runtime_dir,
+        )
         codex.run()
 
     def _setup_child_monitor(self):

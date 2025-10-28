@@ -17,7 +17,9 @@ import getpass
 from pathlib import Path
 
 class ClaudeCodexWrapper:
-    def __init__(self):
+    def __init__(self, resume=False, claude_args=None):
+        self.resume_requested = resume
+        self.claude_args = claude_args or []
         self.script_dir = Path(__file__).resolve().parent
         self.daemon_path = self.script_dir / "codex_daemon.py"
 
@@ -29,9 +31,17 @@ class ClaudeCodexWrapper:
         self.pid_file = os.environ.get("CODEX_DAEMON_PID", str(default_pid))
         self.daemon_process = None
         self.claude_process = None
-        self.client_id = os.environ.get("CODEX_CLIENT_ID") or f"codex-client-{uuid.uuid4().hex[:10]}"
         self.runtime_root = runtime_root
         self.active_client_file = self.runtime_root / "active_client_id"
+        self.project_client_file = self._detect_project_client_file()
+        env_client_id = os.environ.get("CODEX_CLIENT_ID")
+        file_client_id = self._load_project_client_id() if (resume and not env_client_id) else None
+        if env_client_id:
+            self.client_id = env_client_id
+        elif file_client_id:
+            self.client_id = file_client_id
+        else:
+            self.client_id = f"codex-client-{uuid.uuid4().hex[:10]}"
 
     def _select_runtime_root(self):
         candidates = []
@@ -70,6 +80,30 @@ class ClaudeCodexWrapper:
 
         print("❌ 无法创建 Codex 运行目录，请检查权限")
         sys.exit(1)
+
+    def _detect_project_client_file(self):
+        try:
+            project_dir = Path.cwd()
+        except Exception:
+            return None
+        return project_dir / ".codex_client_id"
+
+    def _load_project_client_id(self):
+        if not self.project_client_file:
+            return None
+        try:
+            content = self.project_client_file.read_text(encoding="utf-8").strip()
+            return content or None
+        except OSError:
+            return None
+
+    def _store_project_client_id(self):
+        if not self.project_client_file:
+            return
+        try:
+            self.project_client_file.write_text(self.client_id, encoding="utf-8")
+        except OSError:
+            pass
 
     def check_daemon_running(self):
         """检查守护进程是否已运行"""
@@ -233,8 +267,11 @@ class ClaudeCodexWrapper:
         env["CODEX_CLIENT_ID"] = self.client_id
         env["CODEX_DAEMON_SOCKET"] = str(self.socket_path)
         env["CODEX_DAEMON_PID"] = str(self.pid_file)
+        if self.resume_requested:
+            env["CODEX_FORCE_RESUME"] = "1"
 
         try:
+            self._store_project_client_id()
             try:
                 self.active_client_file.write_text(self.client_id, encoding="utf-8")
             except Exception:
@@ -283,7 +320,7 @@ class ClaudeCodexWrapper:
 
         try:
             # 启动Claude Code
-            return self.start_claude(sys.argv[1:])
+            return self.start_claude(self.claude_args)
         finally:
             self.cleanup()
 
@@ -299,7 +336,7 @@ def show_help():
 claude-codex - Claude Code with integrated Codex AI assistant
 
 用法:
-    claude-codex [OPTIONS] [COMMAND] [ARGS]...
+    claude-codex [-C] [OPTIONS] [COMMAND] [ARGS]...
 
 功能:
     🤖 自动启动Codex守护进程
@@ -322,26 +359,30 @@ Codex命令 (在Claude中使用):
     完整的Claude Code参数请参考: claude-code --help
 """
     print(help_text)
+    print("额外选项:")
+    print("    -C                    恢复上一次的 Codex 会话（使用项目目录中的 .codex_client_id 和历史记录）")
+
+
+def parse_codex_args(argv):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-C', dest='resume', action='store_true', help='恢复上一次的 Codex 会话')
+    return parser.parse_known_args(argv)
 
 def main():
-    # 处理帮助参数
-    if len(sys.argv) == 1:
-        # 无参数时启动交互模式（一键启动）
-        wrapper = ClaudeCodexWrapper()
-        return wrapper.run()
-    elif '--help' in sys.argv or '-h' in sys.argv:
+    codex_args, claude_args = parse_codex_args(sys.argv[1:])
+
+    if '--help' in claude_args or '-h' in claude_args:
         show_help()
-        # 同时显示原始claude-code的帮助
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("原始Claude Code帮助:")
-        print("="*50)
+        print("=" * 50)
         try:
-            subprocess.run(["claude", "--help"], check=False)
-        except:
+            subprocess.run(["claude"] + claude_args, check=False)
+        except Exception:
             pass
         return 0
 
-    wrapper = ClaudeCodexWrapper()
+    wrapper = ClaudeCodexWrapper(resume=codex_args.resume, claude_args=claude_args)
     return wrapper.run()
 
 if __name__ == "__main__":

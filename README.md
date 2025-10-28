@@ -1,4 +1,4 @@
-# Claude Codex Lock
+# Claude Codex Daemon
 
 为 Claude Code 提供持久、隔离的 Codex 后台服务。该工具在本地启动一个守护进程，为每个终端或窗口分配独立的 Codex 实例，并自动处理生命周期、日志及历史记录。
 
@@ -72,7 +72,8 @@ codex_process.py
    - `codex-cli <subcommand>`：统一入口，支持 `ask`、`status`、`stop`、`config`、`reasoning`、`final-only` 等子命令。
    - `codex-ask` / `codex-status` / `codex-stop` / `codex-config` / `codex-reasoning` / `codex-final_only`：分别对应常用操作，可直接简写使用。
    - 例如：`codex-ask "who are you"`、`codex-config high`、`codex-status`。
-   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID` 或在命令附加 `--client-id <ID>`。
+   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID`、命令参数 `--client-id <ID>`，或利用当前目录下自动生成的 `.codex_client_id` 文件（`claude-codex` 会在启动时写入该文件并在后续运行中复用）。
+   - 运行 `claude-codex -C` 可在启动 Claude 及 Codex 时同时恢复 Codex 历史上下文；若仅希望恢复 Claude 的上下文，则保持原有 `claude` 参数（例如 `-c`）即可。
 
 4. **在 Claude Code 中使用命令**
    ```

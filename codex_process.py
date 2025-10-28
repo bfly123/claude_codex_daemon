@@ -6,10 +6,11 @@ import time
 import signal
 import stat
 import subprocess
+import traceback
 
 
 class CodexProcess:
-    def __init__(self, socket_path, instance_id, client_id=None):
+    def __init__(self, socket_path, instance_id, client_id=None, history_dir=None):
         self.socket_path = socket_path
         self.instance_id = instance_id
         self.client_id = client_id
@@ -18,6 +19,7 @@ class CodexProcess:
         self.show_reasoning = False
         self.output_format = "final_only"
         self.running = True
+        self.history_dir = history_dir or "/tmp"
 
         signal.signal(signal.SIGTERM, self._graceful_shutdown)
 
@@ -46,16 +48,50 @@ class CodexProcess:
         self._async_load_history()
 
         while self.running:
+            conn = None
             try:
-                conn, addr = sock.accept()
-                data = conn.recv(8192).decode()
-                if data:
-                    request = json.loads(data)
+                conn, _ = sock.accept()
+                raw_data = conn.recv(65536)
+                if not raw_data:
+                    continue
+
+                try:
+                    request = json.loads(raw_data.decode("utf-8"))
+                except json.JSONDecodeError as exc:
+                    self._log_exception("json_decode", exc)
+                    error_payload = {
+                        "instance_id": self.instance_id,
+                        "type": "error",
+                        "status": "error",
+                        "message": f"请求格式错误: {exc}",
+                        "error_code": "JSON_DECODE_ERROR",
+                    }
+                    conn.send(json.dumps(error_payload, ensure_ascii=False).encode("utf-8"))
+                    continue
+
+                try:
                     response = self.handle_request(request)
-                    conn.send(json.dumps(response).encode())
-                conn.close()
-            except:
-                break
+                except Exception as exc:  # pragma: no cover - 防御性处理
+                    self._log_exception("handle_request", exc)
+                    response = {
+                        "instance_id": self.instance_id,
+                        "type": "error",
+                        "status": "error",
+                        "message": f"处理请求失败: {exc}",
+                        "error_code": "PROCESS_EXCEPTION",
+                    }
+
+                conn.send(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
+            except Exception as exc:  # pragma: no cover - 意外异常
+                self._log_exception("run_loop", exc)
+                time.sleep(0.1)
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
         sock.close()
 
@@ -194,14 +230,24 @@ class CodexProcess:
         params = dict(self._get_model_params_for_profile(profile))
         params["profile"] = profile
 
+        try:
+            response_text = self._call_codex_with_params(request["message"], params)
+        except Exception as exc:
+            self._log_exception("codex_exec", exc)
+            return {
+                "instance_id": self.instance_id,
+                "type": "error",
+                "status": "error",
+                "message": f"❌ Codex执行失败: {exc}",
+                "error_code": "EXECUTION_ERROR",
+            }
+
         self.conversation_history.append({
             "role": "user",
             "content": request["message"],
             "timestamp": request["timestamp"],
             "profile": profile
         })
-
-        response_text = self._call_codex_with_params(request["message"], params)
 
         self.conversation_history.append({
             "role": "assistant",
@@ -212,6 +258,8 @@ class CodexProcess:
 
         if len(self.conversation_history) > 200:
             self.conversation_history = self.conversation_history[-200:]
+
+        self._save_history()
 
         return {
             "instance_id": self.instance_id,
@@ -276,6 +324,18 @@ class CodexProcess:
 
         except Exception as e:
             print(f"[Codex Config] 写入调试日志失败: {e}")
+
+    def _log_exception(self, context, exc):
+        try:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_path = os.path.join(self.history_dir, f"codex-{self.instance_id}-error.log")
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(f"[{timestamp}] {context}: {exc}\n")
+                tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                fh.write(tb)
+                fh.write("\n")
+        except Exception:
+            pass
 
     def _build_codex_prompt(self, profile, params):
         """构造发送给Codex CLI的完整提示词"""
@@ -425,10 +485,9 @@ class CodexProcess:
 
     def _save_history(self):
         # 历史文件基于稳定的instance_id，确保跨重启一致性
-        history_file = f"/tmp/codex-{self.instance_id}-history.json"
+        history_file = os.path.join(self.history_dir, f"codex-{self.instance_id}-history.json")
 
         # 获取Claude父进程ID和socket路径用于实例隔离
-        import os
         claude_parent_pid = os.getppid()
         current_socket_path = self.socket_path
 
@@ -477,7 +536,7 @@ class CodexProcess:
 
     def _load_history_securely(self):
         # 历史文件基于稳定的instance_id，确保跨重启一致性
-        history_file = f"/tmp/codex-{self.instance_id}-history.json"
+        history_file = os.path.join(self.history_dir, f"codex-{self.instance_id}-history.json")
         if not os.path.exists(history_file):
             return
 

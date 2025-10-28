@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""
+Codex-status命令入口点
+查看Codex连接状态
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# 添加脚本目录到Python路径
+script_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(script_dir))
+
+try:
+    from codex_comm import CodexCommunicator
+
+    def main():
+        try:
+            comm = CodexCommunicator()
+            status = comm.get_status()
+
+            print("📊 Codex状态:")
+            for key, value in status.items():
+                print(f"   {key}: {value}")
+
+            return 0
+
+        except Exception as e:
+            print(f"❌ 获取状态失败: {e}")
+            return 1
+
+    if __name__ == "__main__":
+        sys.exit(main())
+
+except ImportError as e:
+    print(f"❌ 导入模块失败: {e}")
+    print("请确保 codex_comm.py 在同一目录下")
+    sys.exit(1)
