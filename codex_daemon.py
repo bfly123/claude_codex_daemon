@@ -260,7 +260,7 @@ class CodexDaemon:
                 help_text = (
                     "🤖 Codex守护进程已启动\n"
                     "可用命令:\n"
-                    "• /codex-ask <问题> - 发送问题\n"
+                    "• /cask <问题> (或 /codex-ask) - 发送问题\n"
                     "• /codex-config [high|default|low] - 查看或设置配置\n"
                     "• /codex-status - 查看状态（需要携带client_id）\n"
                     "• /codex-reasoning <on|off> - 设置推理显示\n"
@@ -279,7 +279,7 @@ class CodexDaemon:
                 '/codex-stop'
             }
             if command in commands_requiring_client and not client_id:
-                return {"error": "Missing client_id. 请使用最新的 claude-codex 启动服务。"}
+                return {"error": "Missing client_id. 请使用最新的 claude_codex 启动服务。"}
 
             if command == '/codex-ask':
                 question = request.get('question', '').strip()

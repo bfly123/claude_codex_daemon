@@ -7,13 +7,20 @@
 ### 启动双窗口模式
 ```bash
 # 基础启动
-./claude-codex-dual
+./claude_codex
 
 # 在项目目录启动
-./claude-codex-dual /path/to/project
+./claude_codex /path/to/project
 
 # 恢复上次会话
-./claude-codex-dual --resume
+./claude_codex -c -C
+
+# 仅恢复 Codex（保留手动打开的Claude）
+./claude_codex -C
+
+# 仅恢复 claude（保留手动打开的Claude）
+./claude_codex -c
+
 ```
 
 ### 基本使用
@@ -25,31 +32,30 @@
 
 ### 核心控制命令
 ```bash
-/codex-ask <问题>              # 异步发送问题（默认）
-/codex-ask --wait <问题>       # 同步等待回复
-/codex-ask -w <问题>           # 同步模式简写
-```
-
-### 状态查看命令
-```bash
-/codex-status                  # 查看详细状态
-/codex-ping                    # 测试连通性
-/codex-history [n]             # 查看对话历史
+/cask <问题>              # 异步发送问题（默认）
+/cask-w <问题>            # 同步等待回复
+/cpend                    # 查看最新回复
+/cping                    # 测试 Codex 连通性
 ```
 
 ## 🎯 使用场景
 
 ### 异步模式（推荐）
 ```bash
-/codex-ask "写一个Python函数计算斐波那契数列"
+/cask "写一个Python函数计算斐波那契数列"
 ✅ 已发送到Codex (标记: ask-1704067200-12345...)
 
 # Claude立即返回，可继续其他工作
 ```
+然后通过
+```bash
+/cpend
+```
+抓取结果。
 
 ### 同步模式
 ```bash
-/codex-ask --wait "解释一下量子计算的基本原理"
+/cask-w "解释一下量子计算的基本原理"
 🔔 发送问题到Codex...
 ⏳ 等待Codex回复...
 🤖 Codex回复:
@@ -79,20 +85,6 @@
 └── history/
     └── session.jsonl   # 对话历史
 ```
-
-## 💡 高级功能
-
-### 自动恢复
-系统会自动检测并恢复异常的连接：
-- Codex进程死亡 → 自动重启
-- 管道损坏 → 重新创建
-- 连接中断 → 自动重连
-
-### 历史记录
-- 自动保存所有对话到JSONL文件
-- 支持项目级历史同步
-- 可按时间查看历史记录
-
 ### 配置选项
 支持环境变量配置：
 ```bash
@@ -109,7 +101,7 @@ export CODEX_SAVE_HISTORY=1     # 保存历史记录
 A: 系统将使用tmux作为备选方案
 
 **Q: Codex窗口无响应**
-A: 使用 `/codex-ping` 测试连通性，或重启双窗口模式
+A: 使用 `/cping` 测试连通性，或重启双窗口模式
 
 **Q: 消息发送失败**
 A: 检查管道状态，使用 `/codex-status` 查看详细信息
@@ -120,7 +112,7 @@ A: 检查管道状态，使用 `/codex-status` 查看详细信息
 /codex-status
 
 # 测试连通性
-/codex-ping
+/cping
 
 # 查看最近对话
 /codex-history 5
@@ -129,17 +121,17 @@ A: 检查管道状态，使用 `/codex-status` 查看详细信息
 ## 📁 文件说明
 
 ### 核心文件
-- `claude-codex-dual` - 双窗口启动器
+- `claude_codex` - 双窗口启动器
 - `codex_comm.py` - 通信核心模块
-- `codex-ask` - ask命令入口
+- `cask` - ask命令入口
 - `codex-status` - status命令入口
-- `codex-ping` - ping命令入口
+- `cping` - ping命令入口
 - `codex_history.py` - 历史记录查看器
 
 ### 配置文件
-- `commands/codex-ask.md` - ask命令文档
+- `commands/cask.md` - ask命令文档
 - `commands/codex-status.md` - status命令文档
-- `commands/codex-ping.md` - ping命令文档
+- `commands/cping.md` - ping命令文档
 - `commands/codex-history.md` - history命令文档
 
 ## 🚨 注意事项
@@ -153,17 +145,12 @@ A: 检查管道状态，使用 `/codex-status` 查看详细信息
 
 1. 启动双窗口模式：
    ```bash
-   ./claude-codex-dual
+   ./claude_codex
    ```
 
 2. 在Claude窗口中测试：
    ```bash
-   /codex-ask "你好，请介绍一下自己"
-   ```
-
-3. 查看状态：
-   ```bash
-   /codex-status
+   /cask "你好，请介绍一下自己"
    ```
 
 享受全新的双窗口协作体验！🚀

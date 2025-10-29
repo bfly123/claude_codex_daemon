@@ -61,7 +61,7 @@ class CodexClient:
         if last_error:
             if hasattr(last_error, 'errno'):
                 if last_error.errno == 2:  # No such file or directory
-                    raise ConnectionError("❌ Codex守护进程未运行，请先启动 claude-codex")
+                    raise ConnectionError("❌ Codex守护进程未运行，请先启动 claude_codex")
                 elif last_error.errno == 111:  # Connection refused
                     raise ConnectionError("❌ 无法连接到Codex守护进程，服务可能异常")
             raise ConnectionError(f"❌ 连接Codex守护进程失败（已重试{self.max_retries}次）: {last_error}")
@@ -112,85 +112,75 @@ class CodexClient:
             if client_socket:
                 client_socket.close()
 
-    def _validate_command_parameters(self, cmd_type: str, command: str) -> Optional[str]:
-        """验证命令参数，返回错误信息或None"""
-        parts = command.split()
-
-        if cmd_type == "/codex-config":
-            if len(parts) > 2:
-                return """❌ 参数错误
-用法:
-• /codex-config            # 查看当前配置
-• /codex-config <high|default|low>  # 切换模型强度"""
-            elif len(parts) == 2:
-                target_profile = parts[1].lower()
-                if target_profile not in {"high", "default", "low", "medium", "mid", "normal", "balanced"}:
-                    return "❌ 无效参数，请使用: high、default、low"
-
-        elif cmd_type == "/codex-reasoning":
-            if len(parts) != 2:
-                return """❌ 参数错误
-用法: /codex-reasoning <on|off>
-• on: 在Claude中展示推理摘要（可能暴露细节）
-• off: 仅展示最终答案（推荐）"""
-            elif parts[1] not in ["on", "off"]:
-                return "❌ 参数错误，使用 on 或 off"
-
-        elif cmd_type == "/codex-final_only":
-            if len(parts) != 2:
-                return """❌ 参数错误
-用法: /codex-final_only <on|off>
-• on: 仅返回最终答案（推荐）
-• off: 返回最终答案及额外细节（用于调试）"""
-            elif parts[1] not in ["on", "off"]:
-                return "❌ 参数错误，使用 on 或 off"
-
-        elif cmd_type == "/codex-ask":
-            if len(parts) == 1:
-                return "❌ 请提供要询问的问题，用法: /codex-ask <你的问题>"
-
-        return None  # 参数验证通过
-
     def handle_command(self, command: str) -> str:
         """统一命令处理入口"""
         command = command.strip()
+
+        alias_map = {
+            "/cask-w": "/codex-ask --wait",
+            "/cask": "/codex-ask",
+            "/cpend": "/codex-pending",
+            "/cping": "/codex-ping",
+        }
+        for alias, target in alias_map.items():
+            if command.startswith(alias):
+                command = target + command[len(alias):]
+                break
+
         if not command.startswith("/codex-"):
             return None
 
-        # 提取命令类型
         parts = command.split()
         cmd_type = parts[0]
 
-        # 对于需要参数验证的命令，先进行验证
-        if cmd_type in {"/codex-config", "/codex-reasoning", "/codex-final_only", "/codex-ask"}:
-            validation_result = self._validate_command_parameters(cmd_type, command)
-            if validation_result:
-                return validation_result
-
-        # 构建请求
-        request = {
-            "command": cmd_type,
-            "client_id": self.client_id
-        }
-
-        # 添加特定参数
         if cmd_type == "/codex-ask":
-            request["question"] = command.replace("/codex-ask ", "").strip()
-        elif cmd_type == "/codex-config" and len(parts) == 2:
-            request["profile"] = parts[1]
-        elif cmd_type == "/codex-reasoning" and len(parts) == 2:
-            request["state"] = parts[1]
-        elif cmd_type == "/codex-final_only" and len(parts) == 2:
-            request["state"] = parts[1]
-
-        # 发送请求
-        response = self._send_request(request)
-
-        # 处理响应
-        if response.get("success"):
-            return response.get("response", "✅ 操作完成")
-        else:
+            if len(parts) == 1:
+                return "❌ 请提供要询问的问题，用法: /cask <你的问题>"
+            wait_mode = False
+            args_tail = parts[1:]
+            if args_tail and args_tail[0] in {"--wait", "-w"}:
+                wait_mode = True
+                args_tail = args_tail[1:]
+            question = " ".join(args_tail) if args_tail else ""
+            if not question:
+                return "❌ 请提供要询问的问题，用法: /cask <你的问题>"
+            if wait_mode:
+                try:
+                    from codex_comm import CodexCommunicator
+                except ImportError as exc:
+                    return f"❌ 无法执行同步提问: {exc}"
+                comm = CodexCommunicator()
+                result = comm.ask_sync(question)
+                return result or "⏰ 请稍后使用 /cpend 查看最新回复"
+            request = {
+                "command": cmd_type,
+                "client_id": self.client_id,
+                "question": question,
+            }
+            response = self._send_request(request)
+            if response.get("success"):
+                return response.get("response", "✅ 操作完成")
             return response.get("error", "❌ 未知错误")
+
+        if cmd_type == "/codex-pending":
+            try:
+                from codex_comm import CodexCommunicator
+            except ImportError as exc:
+                return f"❌ 无法读取待处理消息: {exc}"
+            comm = CodexCommunicator()
+            output = comm.consume_pending(display=False)
+            return output or "暂无 Codex 回复"
+
+        if cmd_type == "/codex-ping":
+            try:
+                from codex_comm import CodexCommunicator
+            except ImportError as exc:
+                return f"❌ 无法执行 ping: {exc}"
+            comm = CodexCommunicator()
+            _, msg = comm.ping(display=False)
+            return msg
+
+        return "❌ 不支持的命令"
 
 # 全局客户端实例
 _client = None
@@ -208,7 +198,7 @@ def handle_codex_command(command: str) -> str:
 
     # 废弃 codex-start 相关命令，返回提示信息
     if command.startswith("/codex-start"):
-        return 'ℹ️ 守护进程由 claude-codex 自动管理，无需执行此命令。'
+        return 'ℹ️ 守护进程由 claude_codex 自动管理，无需执行此命令。'
 
     client = get_client()
     return client.handle_command(command)

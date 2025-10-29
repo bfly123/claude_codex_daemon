@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-claude-codex-dual - Claude-Codex 双窗口模式启动器
+claude_codex - Claude-Codex 双窗口模式启动器
 同时启动Claude和Codex两个窗口，建立单向控制通道
 """
 
@@ -14,13 +14,30 @@ import atexit
 import argparse
 import uuid
 import getpass
+import shlex
+import shutil
 from pathlib import Path
 
 class ClaudeCodexDual:
-    def __init__(self, resume=False, claude_args=None):
+    def __init__(self, resume=False, claude_args=None, codex_resume=False):
         self.resume = resume
+        self.codex_resume = codex_resume
         self.claude_args = claude_args or []
         self.script_dir = Path(__file__).resolve().parent
+
+        self.project_session_file = Path.cwd() / ".codex-session"
+        self.saved_session = self._load_saved_session()
+        self.codex_session_id = None
+        if self.saved_session:
+            self._sanitize_saved_session()
+            self.codex_session_id = self.saved_session.get("codex_session_id")
+        self.codex_session = None
+        self.codex_start_cmd = "codex"
+
+        if self.codex_resume:
+            self._apply_saved_codex_session()
+        else:
+            self._reset_codex_defaults()
 
         # 会话管理
         self.session_id = f"dual-{int(time.time())}-{os.getpid()}"
@@ -34,7 +51,6 @@ class ClaudeCodexDual:
         self.claude_pid_file = self.runtime_dir / "claude.pid"
         self.status_file = self.runtime_dir / "status"
         self.lock_file = self.runtime_dir / "lock"
-        self.project_session_file = Path.cwd() / ".codex-session"
         self.bridge_pid_file = self.runtime_dir / "bridge.pid"
         self.tmux_session = f"codex-{self.session_id[:8]}"
         self.tmux_log_file = self.runtime_dir / "bridge_output.log"
@@ -46,8 +62,164 @@ class ClaudeCodexDual:
         self.daemon_pid_file = self.runtime_dir / "codex-daemon.pid"
         self.client_id = f"codex-dual-{uuid.uuid4().hex[:8]}"
 
+    def _load_saved_session(self) -> dict | None:
+        if not self.project_session_file.exists():
+            return None
+        try:
+            with open(self.project_session_file, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception as exc:
+            print(f"⚠️ 无法读取历史会话信息: {exc}")
+            return None
+
+    def _apply_saved_codex_session(self) -> None:
+        if not self.saved_session:
+            raise RuntimeError("❌ 未找到历史 Codex 会话记录，请先运行 /cask 建立会话")
+
+        session_path = self.saved_session.get("codex_session_path")
+        if not session_path:
+            self._refresh_codex_session(force=True)
+            session_path = self.saved_session.get("codex_session_path")
+            if not session_path:
+                raise RuntimeError("❌ 历史记录中缺少 codex_session_path，无法使用 -C 恢复")
+
+        session_id = self.saved_session.get("codex_session_id")
+        path_obj = Path(session_path).expanduser()
+        if not path_obj.exists() or not session_id:
+            self._refresh_codex_session(force=True)
+            session_path = self.saved_session.get("codex_session_path")
+            session_id = self.saved_session.get("codex_session_id")
+            if not session_path or not session_id:
+                raise RuntimeError("❌ 历史 Codex 会话信息不完整，无法恢复")
+            path_obj = Path(session_path).expanduser()
+            if not path_obj.exists():
+                raise RuntimeError("❌ 历史 Codex 会话日志不存在，已尝试刷新但仍失败")
+
+        self.codex_session = path_obj
+        self.codex_session_id = session_id
+        self.codex_start_cmd = f"codex resume {session_id}"
+
+    def _refresh_codex_session(self, force: bool = False) -> None:
+        latest = self._find_latest_codex_session()
+        if not latest:
+            if force:
+                raise RuntimeError("❌ 未找到任何 Codex 官方日志，无法刷新")
+            return
+        if not self.saved_session:
+            self.saved_session = {}
+        session_id = self._extract_session_id(latest)
+        changed = self.saved_session.get("codex_session_path") != str(latest)
+        self.saved_session["codex_session_path"] = str(latest)
+        if session_id:
+            self.saved_session["codex_session_id"] = session_id
+            if self.saved_session.get("codex_start_cmd") != f"codex resume {session_id}":
+                self.saved_session["codex_start_cmd"] = f"codex resume {session_id}"
+                changed = True
+            self.codex_session_id = session_id
+        else:
+            self.codex_session_id = None
+        if changed or force:
+            self._write_project_session(self.saved_session)
+
+    @staticmethod
+    def _find_latest_codex_session() -> Path | None:
+        root = Path.home() / ".codex" / "sessions"
+        if not root.exists():
+            return None
+        try:
+            logs = sorted(
+                root.rglob("*.jsonl"),
+                key=lambda p: (p.stat().st_mtime, p.stat().st_size),
+            )
+        except Exception:
+            return None
+        return logs[-1] if logs else None
+
+    @staticmethod
+    def _extract_session_id(log_path: Path) -> str | None:
+        try:
+            stem = log_path.stem
+        except Exception:
+            return None
+        parts = stem.split("-")
+        if len(parts) >= 5:
+            candidate = "-".join(parts[-5:])
+            if len(candidate) == 36 and candidate.count("-") == 4:
+                return candidate
+        try:
+            with log_path.open("r", encoding="utf-8") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return None
+        try:
+            entry = json.loads(first_line)
+            payload = entry.get("payload", {})
+            session_meta_id = payload.get("id")
+            if isinstance(session_meta_id, str):
+                return session_meta_id
+        except Exception:
+            return None
+        return None
+    
+    def _write_project_session(self, data: dict) -> None:
+        tmp_file = self.project_session_file.with_suffix(".tmp")
+        try:
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, self.project_session_file)
+        except Exception:
+            if tmp_file.exists():
+                tmp_file.unlink(missing_ok=True)
+        else:
+            self.saved_session = data
+
+    def _sanitize_saved_session(self) -> None:
+        if not self.saved_session:
+            return
+        updated = False
+        path_value = self.saved_session.get("codex_session_path")
+        session_id = self.saved_session.get("codex_session_id")
+        if path_value and not session_id:
+            new_id = self._extract_session_id(Path(path_value))
+            if new_id:
+                self.saved_session["codex_session_id"] = new_id
+                session_id = new_id
+                updated = True
+        if session_id:
+            desired_cmd = f"codex resume {session_id}"
+            if self.saved_session.get("codex_start_cmd") != desired_cmd:
+                self.saved_session["codex_start_cmd"] = desired_cmd
+                updated = True
+            self.codex_session_id = session_id
+        else:
+            self.codex_session_id = None
+        if updated:
+            self._write_project_session(self.saved_session)
+
+    def _reset_codex_defaults(self, write_back: bool = True) -> None:
+        self.codex_session = None
+        self.codex_session_id = None
+        self.codex_start_cmd = "codex"
+        if not self.saved_session:
+            self.saved_session = {}
+        changed = False
+        if self.saved_session.pop("codex_session_path", None) is not None:
+            changed = True
+        if self.saved_session.pop("codex_session_id", None) is not None:
+            changed = True
+        if self.saved_session.get("codex_start_cmd") != self.codex_start_cmd:
+            self.saved_session["codex_start_cmd"] = self.codex_start_cmd
+            changed = True
+        if write_back and changed:
+            self._write_project_session(self.saved_session)
+
     def detect_terminal(self):
         """检测可用的终端工具"""
+        env_terminal = os.environ.get("TERMINAL")
+        if env_terminal and shutil.which(env_terminal):
+            print(f"✅ 使用终端: {env_terminal}")
+            return env_terminal
+
         terminals = [
             "gnome-terminal",
             "konsole",
@@ -115,6 +287,7 @@ class ClaudeCodexDual:
  SOCKET_PATH="{self.daemon_socket}"
  DAEMON_PID="{self.daemon_pid_file}"
 CLIENT_ID="{self.client_id}"
+CODEX_START_CMD={json.dumps(self.codex_start_cmd, ensure_ascii=False)}
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 
@@ -162,7 +335,8 @@ export CODEX_DAEMON_SOCKET="$SOCKET_PATH"
 
 # 启动或准备tmux会话
 if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$TMUX_SESSION" "codex"
+    START_CMD="${{CODEX_START_CMD:-codex}}"
+    tmux new-session -d -s "$TMUX_SESSION" bash -lc "$START_CMD"
     sleep 1
 fi
 tmux pipe-pane -o -t "$TMUX_SESSION" "cat >> '$TMUX_LOG_FILE'"
@@ -206,6 +380,13 @@ exec tmux attach -t "$TMUX_SESSION"
                     "tmux", "attach-session", "-t", f"codex-{self.session_id[:8]}"
                 ])
 
+            elif self.terminal_type == "tilix":
+                cmd = [
+                    "tilix", "--title", f"Codex ({self.session_id[:8]})",
+                    "-e", str(script_file)
+                ]
+                self.codex_process = subprocess.Popen(cmd)
+
             elif self.terminal_type in ["gnome-terminal", "xfce4-terminal"]:
                 cmd = [
                     self.terminal_type, "--title", f"Codex ({self.session_id[:8]})",
@@ -247,22 +428,34 @@ exec tmux attach -t "$TMUX_SESSION"
 
         # 保存会话信息到项目目录
         try:
-            with open(self.project_session_file, 'w') as f:
-                session_info = {
-                    "session_id": self.session_id,
-                    "runtime_dir": str(self.runtime_dir),
-                    "input_fifo": str(self.input_fifo),
-                    "output_fifo": str(self.output_fifo),
-                    "tmux_session": self.tmux_session,
-                    "tmux_log": str(self.tmux_log_file),
-                    "daemon_socket": str(self.daemon_socket),
-                    "daemon_pid_file": str(self.daemon_pid_file),
-                    "bridge_pid_file": str(self.bridge_pid_file),
-                    "bridge_log": str(self.runtime_dir / "bridge.log"),
-                    "client_id": self.client_id,
-                    "started_at": time.strftime('%Y-%m-%d %H:%M:%S')
-                }
-                json.dump(session_info, f, indent=2)
+            session_info = {
+                "session_id": self.session_id,
+                "runtime_dir": str(self.runtime_dir),
+                "input_fifo": str(self.input_fifo),
+                "output_fifo": str(self.output_fifo),
+                "tmux_session": self.tmux_session,
+                "tmux_log": str(self.tmux_log_file),
+                "daemon_socket": str(self.daemon_socket),
+                "daemon_pid_file": str(self.daemon_pid_file),
+                "bridge_pid_file": str(self.bridge_pid_file),
+                "bridge_log": str(self.runtime_dir / "bridge.log"),
+                "client_id": self.client_id,
+                "codex_start_cmd": self.codex_start_cmd,
+                "started_at": time.strftime('%Y-%m-%d %H:%M:%S'),
+                "active": True,
+            }
+            if self.codex_session:
+                session_info["codex_session_path"] = str(self.codex_session)
+            elif self.saved_session and self.saved_session.get("codex_session_path"):
+                session_info["codex_session_path"] = self.saved_session["codex_session_path"]
+
+            if self.codex_session_id:
+                session_info["codex_session_id"] = self.codex_session_id
+            elif self.saved_session and self.saved_session.get("codex_session_id"):
+                session_info["codex_session_id"] = self.saved_session["codex_session_id"]
+
+            self._write_project_session(session_info)
+            self.saved_session = session_info
             print(f"✅ 会话信息已保存: {self.project_session_file}")
         except Exception as e:
             print(f"⚠️ 保存会话信息失败: {e}")
@@ -292,8 +485,8 @@ exec tmux attach -t "$TMUX_SESSION"
         print("✅ Claude窗口就绪")
         print()
         print("🎯 可用命令:")
-        print("   /codex-ask <问题>              - 异步发送问题")
-        print("   /codex-ask --wait <问题>       - 同步等待回复")
+        print("   /cask <问题>              - 异步发送问题")
+        print("   /cask-w <问题>           - 同步等待回复")
         print("   /codex-status                  - 查看连接状态")
         print("   /codex-ping                    - 测试连通性")
         print()
@@ -355,12 +548,11 @@ exec tmux attach -t "$TMUX_SESSION"
 
             # 删除运行时目录
             import shutil
-            if self.runtime_dir.exists():
+            if self.runtime_dir.exists() and not os.environ.get("CODEX_KEEP_RUNTIME"):
                 shutil.rmtree(self.runtime_dir)
 
-            # 删除项目会话文件
-            if self.project_session_file.exists():
-                self.project_session_file.unlink()
+            # 标记项目会话文件为非活跃
+            self._mark_session_inactive()
 
             print("✅ 清理完成")
 
@@ -396,13 +588,34 @@ exec tmux attach -t "$TMUX_SESSION"
         finally:
             self.cleanup()
 
+    def _mark_session_inactive(self) -> None:
+        if not self.project_session_file.exists():
+            return
+        try:
+            with self.project_session_file.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            return
+
+        data["active"] = False
+        data["stopped_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        tmp_file = self.project_session_file.with_suffix(".tmp")
+        try:
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, self.project_session_file)
+        except Exception:
+            if tmp_file.exists():
+                tmp_file.unlink(missing_ok=True)
+
 def show_help():
     """显示帮助信息"""
     help_text = """
-claude-codex-dual - Claude-Codex 双窗口模式启动器
+claude_codex - Claude-Codex 双窗口模式启动器
 
 用法:
-    claude-codex-dual [OPTIONS] [COMMAND] [ARGS]...
+    claude_codex [OPTIONS] [COMMAND] [ARGS]...
 
 功能:
     🚀 同时启动Claude和Codex两个窗口
@@ -411,26 +624,28 @@ claude-codex-dual - Claude-Codex 双窗口模式启动器
     🔄 支持中断恢复和错误处理
 
 选项:
-    --resume              恢复上次的会话
+    --resume              恢复上次的会话（等价于同时启用 -C）
+    -C, --codex-resume    仅恢复 Codex 窗口，使用首次建立的官方日志
     --help, -h            显示帮助信息
 
 Claude命令 (在Claude窗口中使用):
-    /codex-ask <问题>              - 异步发送问题到Codex
-    /codex-ask --wait <问题>       - 同步等待Codex回复
+    /cask <问题>              - 异步发送问题到Codex
+    /cask-w <问题>       - 同步等待Codex回复
     /codex-status                  - 查看连接状态
     /codex-ping                    - 测试连通性
     /codex-history [n]             - 查看最近n条对话
 
 示例:
-    claude-codex-dual                           # 启动双窗口模式
-    claude-codex-dual --resume                  # 恢复上次会话
-    claude-codex-dual /path/to/project          # 在项目目录启动
+    claude_codex                           # 启动双窗口模式
+    claude_codex --resume                  # 恢复上次会话
+    claude_codex /path/to/project          # 在项目目录启动
 """
     print(help_text)
 
 def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--resume', action='store_true', help='恢复上次的会话')
+    parser.add_argument('-C', '--codex-resume', action='store_true', help='从历史记录恢复 Codex 会话')
     parser.add_argument('--help', '-h', action='store_true', help='显示帮助')
 
     # 解析已知参数，其余传给claude
@@ -440,7 +655,12 @@ def main():
         show_help()
         return 0
 
-    dual = ClaudeCodexDual(resume=args.resume, claude_args=claude_args)
+    codex_resume = args.codex_resume or args.resume
+    dual = ClaudeCodexDual(
+        resume=args.resume,
+        claude_args=claude_args,
+        codex_resume=codex_resume,
+    )
     return dual.run()
 
 if __name__ == "__main__":

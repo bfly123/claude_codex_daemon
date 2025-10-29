@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECT_DIR="${CODEX_HOME:-$DEFAULT_PROJECT_DIR}"
+PROJECT_DIR="${CODEX_HOME:-PREFIX_PLACEHOLDER}"
 
 if [ ! -d "$PROJECT_DIR" ]; then
   echo "❌ 无法定位 Codex 安装目录: $PROJECT_DIR" >&2
@@ -30,9 +30,19 @@ except ImportError as exc:
     sys.exit(1)
 
 if len(sys.argv) <= 1:
-    print("❌ 请提供要执行的 codex 命令，例如 /codex-help")
+    print("❌ 请提供要执行的命令，例如 /cask 你好 或 /cpend")
     sys.exit(1)
 
 command = " ".join(sys.argv[1:])
+aliases = {
+    "/cask-w": "/codex-ask --wait",
+    "/cask": "/codex-ask",
+    "/cpend": "/codex-pending",
+    "/cping": "/codex-ping",
+}
+for alias, target in aliases.items():
+    if command.startswith(alias):
+        command = target + command[len(alias):]
+        break
 print(handle_codex_command(command))
 PY

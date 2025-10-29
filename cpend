@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Codex pending replies viewer
+cpend - 查看 Codex 最新回复
 """
 
 import sys
@@ -19,7 +19,11 @@ except ImportError as exc:
 def main() -> int:
     try:
         comm = CodexCommunicator()
-        comm.consume_pending()
+        output = comm.consume_pending(display=False)
+        if output:
+            print(output)
+        else:
+            print('暂无 Codex 回复')
         return 0
     except Exception as exc:
         print(f"❌ 执行失败: {exc}")

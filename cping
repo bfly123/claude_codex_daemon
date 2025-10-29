@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Codex-ping命令入口点
-测试与Codex的连通性
+cping 命令入口点
+测试与 Codex 的连通性
 """
 
 import sys
@@ -18,8 +18,9 @@ try:
     def main():
         try:
             comm = CodexCommunicator()
-            comm.ping()
-            return 0
+            healthy, message = comm.ping(display=False)
+            print(message)
+            return 0 if healthy else 1
 
         except Exception as e:
             print(f"❌ 连通性测试失败: {e}")

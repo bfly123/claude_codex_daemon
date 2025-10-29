@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Codex-ask命令入口点
+cask 命令入口点
 支持同步和异步两种模式
 """
 
@@ -20,7 +20,7 @@ try:
         args = sys.argv[1:]
         if not args:
             print("❌ 请提供问题内容")
-            print("用法: /codex-ask [--wait|-w] <问题>")
+            print("用法: cask [--wait|-w] <问题>")
             return 1
 
         # 检查是否为同步模式

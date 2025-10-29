@@ -665,7 +665,7 @@ class ClaudeCodexManager:
             return "❌ 无效参数，请使用: high、default、low"
 
         if not self._ensure_active():
-            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /cask 或 /codex-status 首次触发实例创建'
 
         response = self._send_config_command(
             {"action": "set_profile", "profile": aliases[normalized]}
@@ -681,7 +681,7 @@ class ClaudeCodexManager:
             return "❌ 参数错误，使用 on 或 off"
 
         if not self._ensure_active():
-            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /cask 或 /codex-status 首次触发实例创建'
 
         target = state_token == "on"
         response = self._send_config_command(
@@ -699,7 +699,7 @@ class ClaudeCodexManager:
             return "❌ 参数错误，使用 on 或 off"
 
         if not self._ensure_active():
-            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /codex-ask 或 /codex-status 首次触发实例创建'
+            return '📌 当前守护进程尚未创建 Codex 实例；可通过 /cask 或 /codex-status 首次触发实例创建'
 
         target = "final_only" if state_token == "on" else "final_with_details"
         response = self._send_config_command(
@@ -727,7 +727,7 @@ class ClaudeCodexManager:
             lines.append(f"• Instance ID: {cfg['instance_id']}")
             lines.append(f"• 历史轮次: {cfg['conversation_count']}")
         else:
-            lines.append("• Instance ID: 尚未创建（首次执行 /codex-ask 或 /codex-status 即可生成）")
+            lines.append("• Instance ID: 尚未创建（首次执行 /cask 或 /codex-status 即可生成）")
             lines.append("• 历史轮次: 0")
         lines.append(f"• Show Reasoning: {reasoning_flag}  (on=输出推理摘要；off=仅内部使用)")
         lines.append(f"• Output Format: {output_desc}  (final_only=只输出最终答案)")

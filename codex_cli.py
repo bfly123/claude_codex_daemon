@@ -19,12 +19,9 @@ if str(SCRIPT_DIR) not in sys.path:
 def _resolve_command_alias(argv: Sequence[str]) -> list[str]:
     tool_name = Path(sys.argv[0]).name
     alias_map = {
-        "codex-ask": ["ask"],
-        "codex-status": ["status"],
-        "codex-stop": ["stop"],
-        "codex-config": ["config"],
-        "codex-reasoning": ["reasoning"],
-        "codex-final_only": ["final-only"],
+        "cask": ["ask"],
+        "cpend": ["pending"],
+        "cping": ["ping"],
     }
     if tool_name in alias_map and tool_name != "codex-cli":
         return alias_map[tool_name] + list(argv)
@@ -76,18 +73,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ask_parser = subparsers.add_parser("ask", help="向 Codex 提问")
     ask_parser.add_argument("question", nargs="+", help="要询问的问题内容")
 
-    status_parser = subparsers.add_parser("status", help="查看当前状态")
-
-    stop_parser = subparsers.add_parser("stop", help="停止当前实例")
-
-    config_parser = subparsers.add_parser("config", help="查看或设置性能模式")
-    config_parser.add_argument("profile", nargs="?", choices=["high", "default", "low"], help="目标性能档位")
-
-    reasoning_parser = subparsers.add_parser("reasoning", help="切换推理展示开关")
-    reasoning_parser.add_argument("state", choices=["on", "off"], help="on 或 off")
-
-    final_parser = subparsers.add_parser("final-only", help="切换输出详细程度")
-    final_parser.add_argument("state", choices=["on", "off"], help="on 返回纯最终答案，off 包含额外细节")
+    subparsers.add_parser("pending", help="查看待处理回复")
+    subparsers.add_parser("ping", help="测试 Codex 连通性")
 
     args = parser.parse_args(raw_argv)
 
@@ -102,20 +89,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "ask":
         payload = " ".join(args.question)
-        response = _handle_command(f"/codex-ask {payload}")
-    elif args.command == "status":
-        response = _handle_command("/codex-status")
-    elif args.command == "stop":
-        response = _handle_command("/codex-stop")
-    elif args.command == "config":
-        if args.profile:
-            response = _handle_command(f"/codex-config {args.profile}")
-        else:
-            response = _handle_command("/codex-config")
-    elif args.command == "reasoning":
-        response = _handle_command(f"/codex-reasoning {args.state}")
-    elif args.command == "final-only":
-        response = _handle_command(f"/codex-final_only {args.state}")
+        response = _handle_command(f"/cask {payload}")
+    elif args.command == "pending":
+        response = _handle_command("/cpend")
+    elif args.command == "ping":
+        response = _handle_command("/cping")
     else:
         parser.error("未知命令")
         return 1

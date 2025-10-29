@@ -4,17 +4,17 @@
 
 ## 关键特性
 
-- **多客户端隔离**：每个 `claude-codex` 会话都会生成独立的 `CODEX_CLIENT_ID`，守护进程按客户端维护专属的 `ClaudeCodexManager` 与子进程，互不干扰。
+- **多客户端隔离**：每个 `claude_codex` 会话都会生成独立的 `CODEX_CLIENT_ID`，守护进程按客户端维护专属的 `ClaudeCodexManager` 与子进程，互不干扰。
 - **自动恢复**：历史记录与配置保存在 `/tmp/codex-<instance>-history.json`，同一客户端重连时会自动恢复上下文。
 - **真实 Codex 调用**：守护进程子进程通过 `codex exec --json` 调用 Codex CLI，解析流式输出并返回最终答案。
 - **健壮通信**：Unix Socket + 超时重试，单次请求默认 180 秒超时，并自动截断响应换行。
-- **运行洞察**：提供 `/codex-status` 与 `/codex-health` 命令/接口，可同时查看单客户端与全局运行概况。
+- **运行洞察**：通过 `/cpend` 与 `/cping` 快速确认 Codex 状态与未读回复。
 - **自动清理**：当客户端 60 秒无活动时，对应 Codex 子进程会自动关闭，可通过 `CODEX_CLIENT_IDLE_TIMEOUT` 环境变量调整。
 
 ## 组件概览
 
 ```
-claude-codex (脚本)
+claude_codex (脚本)
   └─ 设置 CODEX_CLIENT_ID、启动 codex_daemon.py、拉起 Claude Code
 
 codex_daemon.py (守护进程)
@@ -48,46 +48,43 @@ codex_process.py
 
    # 卸载（任选其一）
    sudo ./install.sh uninstall
-   claude-codex-install uninstall
+   claude_codex-install uninstall
    ```
-   默认会将项目安装到 `~/.local/share/claude-codex-lock`，并创建以下链接：
-   - `~/.local/bin/claude-codex`：一键启动守护进程 + Claude Code
-   - `~/.local/bin/claude-codex-install`：全局安装/卸载入口
+   默认会将项目安装到 `~/.local/share/claude_codex-lock`，并创建以下链接：
+   - `~/.local/bin/claude_codex`：一键启动守护进程 + Claude Code
+   - `~/.local/bin/claude_codex-install`：全局安装/卸载入口
    - `~/.claude/commands/codex`（如不存在则自动创建）：在 Claude 中可直接使用 `/codex-*` 命令
 
    脚本要求使用 `sudo` 运行，并会自动识别 `SUDO_USER` 将文件安装/链接到该用户的家目录。可通过环境变量定制：
-   - `CODEX_INSTALL_PREFIX`：安装目录（默认：`~/.local/share/claude-codex-lock`，`~` 为原 sudo 用户）
+   - `CODEX_INSTALL_PREFIX`：安装目录（默认：`~/.local/share/claude_codex-lock`，`~` 为原 sudo 用户）
    - `CODEX_BIN_DIR`：bin 目录（默认：`~/.local/bin`）
    - `CODEX_CLAUDE_COMMAND_DIR`：Claude 命令目录
 
 3. **启动守护进程并运行 Claude Code**
    ```bash
-   claude-codex
+   claude_codex
    ```
 - 守护进程默认使用 `~/.codex_runtime/codex-daemon.sock`，适配多数受限环境。
 - 首次启动会分配一个随机 `CODEX_CLIENT_ID` 并写入子进程环境。
-- 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude-codex`。
+- 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude_codex`。
 
    安装时会在 `~/.local/bin` 额外提供下列命令，方便在终端直接操作 Codex：
-   - `codex-cli <subcommand>`：统一入口，支持 `ask`、`status`、`stop`、`config`、`reasoning`、`final-only` 等子命令。
-   - `codex-ask` / `codex-status` / `codex-stop` / `codex-config` / `codex-reasoning` / `codex-final_only`：分别对应常用操作，可直接简写使用。
-   - 例如：`codex-ask "who are you"`、`codex-config high`、`codex-status`。
-   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID`、命令参数 `--client-id <ID>`，或利用当前目录下自动生成的 `.codex_client_id` 文件（`claude-codex` 会在启动时写入该文件并在后续运行中复用）。
-   - 运行 `claude-codex -C` 可在启动 Claude 及 Codex 时同时恢复 Codex 历史上下文；若仅希望恢复 Claude 的上下文，则保持原有 `claude` 参数（例如 `-c`）即可。
+   - `codex-cli <subcommand>`：统一入口，支持 `ask`、`pending`、`ping` 等子命令。
+   - `cask` / `cpend` / `cping`：最常用的 Codex 快捷命令。
+   - 例如：`cask "who are you"`、`cpend`、`cping`。
+   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID`、命令参数 `--client-id <ID>`，或利用当前目录下自动生成的 `.codex_client_id` 文件（`claude_codex` 会在启动时写入该文件并在后续运行中复用）。
+   - 运行 `claude_codex -C` 可在启动 Claude 及 Codex 时同时恢复 Codex 历史上下文；若仅希望恢复 Claude 的上下文，则保持原有 `claude` 参数（例如 `-c`）即可。
 
 4. **在 Claude Code 中使用命令**
    ```
-   /codex-ask …          # 提问
-   /codex-config …       # 切换 high/default/low
-   /codex-reasoning on   # 控制推理展示
-   /codex-final_only on  # 控制输出格式
-   /codex-status         # 查看当前客户端状态
-   /codex-stop           # 关闭当前客户端实例
+   /cask …          # 提问（默认异步，使用 --wait 同步）
+   /cpend        # 查看最新 Codex 回复
+   /cping        # 测试与 Codex 的连通性
    ```
 
 ## 多客户端使用
 
-- 每个终端/窗口运行 `claude-codex` 都会携带独立 `CODEX_CLIENT_ID`。
+- 每个终端/窗口运行 `claude_codex` 都会携带独立 `CODEX_CLIENT_ID`。
 - 守护进程按 `client_id` 存储历史、配置和 socket，确保上下文不会串线。
 - 同一客户端再次启动会尝试复用其历史文件并恢复 conversation context。
 - 每个客户端若超过 60 秒无请求，会被守护进程自动清理以释放资源，可通过 `CODEX_CLIENT_IDLE_TIMEOUT=<秒>` 调整阈值。
@@ -124,8 +121,7 @@ PY
 
 ## 关闭服务
 
-- **当前客户端**：在 Claude 中执行 `/codex-stop`，只停止对应 Codex 实例。
-- **全部客户端/守护进程**：执行 `/codex-shutdown`，或在 shell 中发送同等请求。
+- **查看未读**：在 Claude 中执行 `/cpend` 查看并清空待处理回复。
   ```bash
   python3 - <<'PY'
   import socket, json
@@ -151,7 +147,7 @@ PY
 ```bash
 export CODEX_DAEMON_SOCKET="$HOME/.codex_runtime/codex-daemon.sock"
 export CODEX_DAEMON_PID="$HOME/.codex_runtime/codex-daemon.pid"
-claude-codex
+claude_codex
 ```
 
 摘掉这些环境变量即可恢复默认行为。
@@ -177,7 +173,7 @@ claude-codex
 - 对话历史默认保留最近 200 轮，可在 `codex_process.py` 内调整。
 - `_save_history` 使用安全写入策略（`O_NOFOLLOW`、权限 0600），修改时注意保持安全性。
 - 所有 CLI 调用默认 `--sandbox read-only`，如需写权限请在调用层扩展。
-- 安装脚本会在用户 `site-packages` 中写入 `.pth` 文件并自动导入 `codex_bootstrap`，因此可以直接使用 `python3 -c "print(handle_codex_command('/codex-config high'))"` 等命令（若使用自定义 Python 环境，请确保其能够读取用户级 `site-packages`），无需手动 import 或设置 `PYTHONPATH`。
+- 安装脚本会在用户 `site-packages` 中写入 `.pth` 文件并自动导入 `codex_bootstrap`，因此可以直接使用 `python3 -c "print(handle_codex_command('/cask 你好'))"` 等命令（若使用自定义 Python 环境，请确保其能够读取用户级 `site-packages`），无需手动 import 或设置 `PYTHONPATH`。
 
 ---
 
