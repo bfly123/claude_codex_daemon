@@ -15,6 +15,7 @@ SCRIPTS_TO_LINK=(
 )
 
 CLAUDE_MARKDOWN=(
+  cast.md
   cask.md
   cask-w.md
   cpend.md
@@ -127,19 +128,6 @@ install_claude_commands() {
   claude_dir="$(detect_claude_dir)"
   mkdir -p "$claude_dir"
 
-  python3 - "$REPO_ROOT/commands/codex" "$INSTALL_PREFIX" "$claude_dir/codex" <<'PY'
-import pathlib
-import sys
-
-template_path = pathlib.Path(sys.argv[1])
-prefix = sys.argv[2]
-dest_path = pathlib.Path(sys.argv[3])
-
-content = template_path.read_text(encoding="utf-8")
-dest_path.write_text(content.replace("PREFIX_PLACEHOLDER", prefix), encoding="utf-8")
-dest_path.chmod(0o755)
-PY
-
   for doc in "${CLAUDE_MARKDOWN[@]}"; do
     install -m 0644 "$REPO_ROOT/commands/$doc" "$claude_dir/$doc"
   done
@@ -173,7 +161,6 @@ uninstall_all() {
   done
   local claude_dir
   claude_dir="$(detect_claude_dir)"
-  rm -f "$claude_dir/codex"
   for doc in "${CLAUDE_MARKDOWN[@]}"; do
     rm -f "$claude_dir/$doc"
   done

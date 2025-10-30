@@ -14,12 +14,28 @@ import atexit
 import argparse
 import uuid
 import getpass
+import shlex
+import re
 from pathlib import Path
 
 class ClaudeCodexDual:
-    def __init__(self, resume=False, claude_args=None):
+    _RESUME_FLAGS = {"-c", "-C", "--resume"}
+    _SESSION_ID_PATTERN = re.compile(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        re.IGNORECASE,
+    )
+
+    def __init__(
+        self,
+        resume: bool = False,
+        claude_args=None,
+        resume_claude: bool = False,
+        resume_codex: bool = False,
+    ):
         self.resume = resume
-        self.claude_args = claude_args or []
+        self.resume_claude = resume_claude or resume
+        self.resume_codex = resume_codex or resume
+        self.claude_args = self._clean_claude_args(claude_args or [])
         self.script_dir = Path(__file__).resolve().parent
 
         # 会话管理
@@ -38,6 +54,7 @@ class ClaudeCodexDual:
         self.bridge_pid_file = self.runtime_dir / "bridge.pid"
         self.tmux_session = f"codex-{self.session_id[:8]}"
         self.tmux_log_file = self.runtime_dir / "bridge_output.log"
+        self._cleaned = False
 
         # 进程管理
         self.codex_process = None
@@ -45,6 +62,214 @@ class ClaudeCodexDual:
         self.daemon_socket = self.runtime_dir / "codex-daemon.sock"
         self.daemon_pid_file = self.runtime_dir / "codex-daemon.pid"
         self.client_id = f"codex-dual-{uuid.uuid4().hex[:8]}"
+
+        # 历史会话信息
+        self.previous_session = self._load_previous_session()
+        self.session_record = dict(self.previous_session) if isinstance(self.previous_session, dict) else {}
+        self.codex_start_cmd = self._prepare_codex_start_command()
+        self._apply_claude_resume_preferences()
+        self._session_record_written = False
+
+    def _clean_claude_args(self, args):
+        """移除控制自身恢复行为的标志，避免传给 Claude CLI"""
+        cleaned = []
+        if not isinstance(args, (list, tuple)):
+            args = [args]
+
+        for raw in args:
+            if raw is None:
+                continue
+
+            if isinstance(raw, (list, tuple)):
+                tokens = [str(item) for item in raw]
+            else:
+                text = str(raw).strip()
+                if not text:
+                    continue
+                tokens = shlex.split(text)
+
+            for token in tokens:
+                if token in self._RESUME_FLAGS:
+                    continue
+                cleaned.append(token)
+
+        return cleaned
+
+    def _load_previous_session(self):
+        if not self.project_session_file.exists():
+            return {}
+        try:
+            with open(self.project_session_file, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+                if isinstance(data, dict):
+                    return data
+        except Exception as exc:
+            print(f"⚠️ 无法读取历史会话信息: {exc}")
+        return {}
+
+    def _prepare_codex_start_command(self) -> str:
+        default_cmd = "codex"
+        if not self.resume_codex:
+            return default_cmd
+
+        data = self.previous_session or {}
+        stored_cmd = data.get("codex_start_cmd")
+        if isinstance(stored_cmd, str) and stored_cmd.strip():
+            print(f"🔁 使用历史 Codex 启动命令: {stored_cmd}")
+            return stored_cmd
+
+        session_id = data.get("codex_session_id")
+        if isinstance(session_id, str) and session_id.strip():
+            resume_cmd = f"codex resume {session_id.strip()}"
+            print(f"🔁 根据会话ID恢复 Codex: {resume_cmd}")
+            return resume_cmd
+
+        print("⚠️ 未找到可恢复的 Codex 信息，将使用默认命令")
+        return default_cmd
+
+    def _apply_claude_resume_preferences(self):
+        if not self.resume_claude or self.claude_args:
+            return
+
+        data = self.previous_session or {}
+        saved_args = data.get("claude_args")
+        if isinstance(saved_args, list) and saved_args:
+            self.claude_args = self._clean_claude_args(saved_args)
+            print(f"🔁 已恢复 Claude 启动参数: {' '.join(self.claude_args)}")
+        elif isinstance(saved_args, str) and saved_args.strip():
+            self.claude_args = self._clean_claude_args([saved_args.strip()])
+            print(f"🔁 已恢复 Claude 启动参数: {saved_args.strip()}")
+        else:
+            print("⚠️ 未找到 Claude 历史参数，将使用默认命令")
+
+    def _build_claude_command(self):
+        """构建 Claude CLI 启动命令"""
+        command = ["claude"]
+        if self.resume_claude:
+            command.append("-c")
+        command.extend(self.claude_args)
+        return command
+
+    def _write_project_session(self, active: bool):
+        record = {}
+        latest = self._load_previous_session()
+        if isinstance(latest, dict):
+            record.update(latest)
+
+        existing_codex_cmd = record.get("codex_start_cmd", "")
+        codex_cmd_to_store = self.codex_start_cmd
+        if (
+            isinstance(existing_codex_cmd, str)
+            and existing_codex_cmd.startswith("codex resume ")
+            and isinstance(self.codex_start_cmd, str)
+            and not self.codex_start_cmd.startswith("codex resume ")
+        ):
+            codex_cmd_to_store = existing_codex_cmd
+
+        inferred_path, inferred_session = self._infer_codex_log()
+        if inferred_path and not record.get("codex_session_path"):
+            record["codex_session_path"] = inferred_path
+        if inferred_session and not record.get("codex_session_id"):
+            record["codex_session_id"] = inferred_session
+        if (
+            inferred_session
+            and isinstance(codex_cmd_to_store, str)
+            and not codex_cmd_to_store.startswith("codex resume ")
+        ):
+            codex_cmd_to_store = f"codex resume {inferred_session}"
+
+        record.update(
+            {
+                "session_id": self.session_id,
+                "runtime_dir": str(self.runtime_dir),
+                "input_fifo": str(self.input_fifo),
+                "output_fifo": str(self.output_fifo),
+                "tmux_session": self.tmux_session,
+                "tmux_log": str(self.tmux_log_file),
+                "daemon_socket": str(self.daemon_socket),
+                "daemon_pid_file": str(self.daemon_pid_file),
+                "bridge_pid_file": str(self.bridge_pid_file),
+                "bridge_log": str(self.runtime_dir / "bridge.log"),
+                "client_id": self.client_id,
+                "codex_start_cmd": codex_cmd_to_store,
+                "claude_args": self._clean_claude_args(self.claude_args),
+                "flags": {
+                    "resume": self.resume,
+                    "resume_claude": self.resume_claude,
+                    "resume_codex": self.resume_codex,
+                },
+            }
+        )
+
+        record["active"] = active
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        if active:
+            record["started_at"] = timestamp
+            record.pop("ended_at", None)
+        else:
+            record["ended_at"] = timestamp
+
+        tmp_file = self.project_session_file.with_suffix(".tmp")
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as handle:
+                json.dump(record, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, self.project_session_file)
+            action = "保存" if active else "更新"
+            print(f"✅ 会话信息已{action}: {self.project_session_file}")
+            self.session_record = record
+            self._session_record_written = True
+        except Exception as exc:
+            if tmp_file.exists():
+                try:
+                    tmp_file.unlink()
+                except Exception:
+                    pass
+            prefix = "保存" if active else "更新"
+            print(f"⚠️ {prefix}会话信息失败: {exc}")
+
+    def _infer_codex_log(self):
+        """尝试根据最新 Codex 日志推断恢复所需的信息"""
+        sessions_root = Path.home() / ".codex" / "sessions"
+        if not sessions_root.exists():
+            return None, None
+
+        try:
+            logs = sorted(
+                (p for p in sessions_root.glob("**/*.jsonl") if p.is_file()),
+                key=lambda path: path.stat().st_mtime,
+            )
+        except OSError:
+            return None, None
+
+        for candidate in reversed(logs):
+            session_id = self._extract_session_id(candidate)
+            if session_id:
+                return str(candidate), session_id
+
+        if logs:
+            return str(logs[-1]), None
+        return None, None
+
+    def _extract_session_id(self, path: Path):
+        """从日志文件推断 Codex session ID"""
+        for source in (path.stem, path.name):
+            match = self._SESSION_ID_PATTERN.search(source)
+            if match:
+                return match.group(0)
+
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return None
+
+        if not first_line:
+            return None
+
+        match = self._SESSION_ID_PATTERN.search(first_line)
+        if match:
+            return match.group(0)
+        return None
 
     def detect_terminal(self):
         """检测可用的终端工具"""
@@ -91,6 +316,7 @@ class ClaudeCodexDual:
     def start_codex_window(self):
         """启动Codex窗口"""
         print("🚀 启动Codex窗口...")
+        print(f"➡️ Codex启动命令: {self.codex_start_cmd}")
 
         self.terminal_type = self.detect_terminal()
 
@@ -159,10 +385,11 @@ export CODEX_DAEMON_SOCKET="$SOCKET_PATH"
  export CODEX_OUTPUT_FIFO="$OUTPUT_FIFO"
  export CODEX_TMUX_SESSION="$TMUX_SESSION"
  export CODEX_TMUX_LOG="$TMUX_LOG_FILE"
+CODEX_START_CMD={json.dumps(self.codex_start_cmd)}
 
 # 启动或准备tmux会话
 if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$TMUX_SESSION" "codex"
+    tmux new-session -d -s "$TMUX_SESSION" "$CODEX_START_CMD"
     sleep 1
 fi
 tmux pipe-pane -o -t "$TMUX_SESSION" "cat >> '$TMUX_LOG_FILE'"
@@ -246,26 +473,7 @@ exec tmux attach -t "$TMUX_SESSION"
         print("🚀 启动Claude窗口...")
 
         # 保存会话信息到项目目录
-        try:
-            with open(self.project_session_file, 'w') as f:
-                session_info = {
-                    "session_id": self.session_id,
-                    "runtime_dir": str(self.runtime_dir),
-                    "input_fifo": str(self.input_fifo),
-                    "output_fifo": str(self.output_fifo),
-                    "tmux_session": self.tmux_session,
-                    "tmux_log": str(self.tmux_log_file),
-                    "daemon_socket": str(self.daemon_socket),
-                    "daemon_pid_file": str(self.daemon_pid_file),
-                    "bridge_pid_file": str(self.bridge_pid_file),
-                    "bridge_log": str(self.runtime_dir / "bridge.log"),
-                    "client_id": self.client_id,
-                    "started_at": time.strftime('%Y-%m-%d %H:%M:%S')
-                }
-                json.dump(session_info, f, indent=2)
-            print(f"✅ 会话信息已保存: {self.project_session_file}")
-        except Exception as e:
-            print(f"⚠️ 保存会话信息失败: {e}")
+        self._write_project_session(active=True)
 
         # 设置环境变量
         env = os.environ.copy()
@@ -300,7 +508,7 @@ exec tmux attach -t "$TMUX_SESSION"
 
         # 启动Claude Code
         try:
-            cmd = ["claude"] + self.claude_args
+            cmd = self._build_claude_command()
             print(f"执行: {' '.join(cmd)}")
 
             return subprocess.run(
@@ -320,6 +528,9 @@ exec tmux attach -t "$TMUX_SESSION"
 
     def cleanup(self):
         """清理资源"""
+        if self._cleaned:
+            return
+        self._cleaned = True
         print("\\n🧹 清理会话资源...")
 
         try:
@@ -348,7 +559,7 @@ exec tmux attach -t "$TMUX_SESSION"
                 subprocess.run([
                     "tmux", "kill-session", "-t", f"codex-{self.session_id[:8]}"
                 ], stderr=subprocess.DEVNULL)
-            else:
+            elif self.terminal_type:
                 subprocess.run([
                     "tmux", "kill-session", "-t", self.tmux_session
                 ], stderr=subprocess.DEVNULL)
@@ -358,9 +569,8 @@ exec tmux attach -t "$TMUX_SESSION"
             if self.runtime_dir.exists():
                 shutil.rmtree(self.runtime_dir)
 
-            # 删除项目会话文件
-            if self.project_session_file.exists():
-                self.project_session_file.unlink()
+            if self._session_record_written:
+                self._write_project_session(active=False)
 
             print("✅ 清理完成")
 
@@ -413,6 +623,7 @@ claude_codex - Claude-Codex 双窗口模式启动器
 选项:
     -c                    恢复Claude上下文
     -C                    恢复Codex上下文
+    --resume              同时恢复Claude和Codex上下文
     --help, -h            显示帮助信息
 
 Claude命令 (在Claude窗口中使用):
@@ -510,6 +721,8 @@ def main():
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--resume', action='store_true', help='恢复上次的会话')
+    parser.add_argument('-c', dest='resume_claude', action='store_true', help='恢复Claude上下文')
+    parser.add_argument('-C', dest='resume_codex', action='store_true', help='恢复Codex上下文')
     parser.add_argument('--help', '-h', action='store_true', help='显示帮助')
 
     # 解析已知参数，其余传给claude
@@ -525,7 +738,12 @@ def main():
         show_help()
         return 0
 
-    dual = ClaudeCodexDual(resume=args.resume, claude_args=remaining_args)
+    dual = ClaudeCodexDual(
+        resume=args.resume,
+        claude_args=remaining_args,
+        resume_claude=args.resume_claude,
+        resume_codex=args.resume_codex,
+    )
     return dual.run()
 
 if __name__ == "__main__":

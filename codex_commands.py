@@ -144,23 +144,23 @@ class CodexClient:
             question = " ".join(args_tail) if args_tail else ""
             if not question:
                 return "❌ 请提供要询问的问题，用法: /cask <你的问题>"
-            if wait_mode:
-                try:
-                    from codex_comm import CodexCommunicator
-                except ImportError as exc:
-                    return f"❌ 无法执行同步提问: {exc}"
+
+            try:
+                from codex_comm import CodexCommunicator
+            except ImportError as exc:
+                return f"❌ 无法导入 CodexCommunicator: {exc}"
+
+            try:
                 comm = CodexCommunicator()
+            except Exception as exc:
+                return f"❌ 无法连接到 Codex: {exc}"
+
+            if wait_mode:
                 result = comm.ask_sync(question)
                 return result or "⏰ 请稍后使用 /cpend 查看最新回复"
-            request = {
-                "command": cmd_type,
-                "client_id": self.client_id,
-                "question": question,
-            }
-            response = self._send_request(request)
-            if response.get("success"):
-                return response.get("response", "✅ 操作完成")
-            return response.get("error", "❌ 未知错误")
+            else:
+                comm.ask_async(question)
+                return ""
 
         if cmd_type == "/codex-pending":
             try:

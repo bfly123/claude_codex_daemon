@@ -1,0 +1,23 @@
+{
+  "session_id": "dual-1761810751-3964606",
+  "runtime_dir": "/tmp/codex-bfly/dual-1761810751-3964606",
+  "input_fifo": "/tmp/codex-bfly/dual-1761810751-3964606/input.fifo",
+  "output_fifo": "/tmp/codex-bfly/dual-1761810751-3964606/output.fifo",
+  "tmux_session": "codex-dual-176",
+  "tmux_log": "/tmp/codex-bfly/dual-1761810751-3964606/bridge_output.log",
+  "daemon_socket": "/tmp/codex-bfly/dual-1761810751-3964606/codex-daemon.sock",
+  "daemon_pid_file": "/tmp/codex-bfly/dual-1761810751-3964606/codex-daemon.pid",
+  "bridge_pid_file": "/tmp/codex-bfly/dual-1761810751-3964606/bridge.pid",
+  "bridge_log": "/tmp/codex-bfly/dual-1761810751-3964606/bridge.log",
+  "client_id": "codex-dual-de93bc7e",
+  "codex_start_cmd": "codex",
+  "claude_args": [],
+  "flags": {
+    "resume": false,
+    "resume_claude": false,
+    "resume_codex": false
+  },
+  "active": false,
+  "started_at": "2025-10-30 15:52:33",
+  "ended_at": "2025-10-30 15:52:34"
+}

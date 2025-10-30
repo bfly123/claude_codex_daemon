@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import shlex
 from datetime import datetime
@@ -15,19 +16,52 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
 SESSION_ROOT = Path.home() / ".codex" / "sessions"
+SESSION_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 
 class CodexLogReader:
     """读取 ~/.codex/sessions 内的 Codex 官方日志"""
 
-    def __init__(self, root: Path = SESSION_ROOT):
-        self.root = root
+    def __init__(self, root: Path = SESSION_ROOT, log_path: Optional[Path] = None):
+        self.root = Path(root).expanduser()
+        self._preferred_log = self._normalize_path(log_path)
 
-    def _latest_log(self) -> Optional[Path]:
+    def set_preferred_log(self, log_path: Optional[Path]) -> None:
+        self._preferred_log = self._normalize_path(log_path)
+
+    def _normalize_path(self, value: Optional[Any]) -> Optional[Path]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, Path):
+            return value
+        try:
+            return Path(value).expanduser()
+        except TypeError:
+            return None
+
+    def _scan_latest(self) -> Optional[Path]:
         if not self.root.exists():
             return None
-        logs = sorted(self.root.glob("**/*.jsonl"), key=lambda p: p.stat().st_mtime)
+        try:
+            logs = sorted(
+                (p for p in self.root.glob("**/*.jsonl") if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+            )
+        except OSError:
+            return None
         return logs[-1] if logs else None
+
+    def _latest_log(self) -> Optional[Path]:
+        preferred = self._preferred_log
+        if preferred and preferred.exists():
+            return preferred
+        latest = self._scan_latest()
+        if latest:
+            self._preferred_log = latest
+        return latest
 
     def current_log_path(self) -> Optional[Path]:
         return self._latest_log()
@@ -35,7 +69,12 @@ class CodexLogReader:
     def capture_state(self) -> Dict[str, Any]:
         """记录当前日志与偏移"""
         log = self._latest_log()
-        offset = log.stat().st_size if log and log.exists() else 0
+        offset = 0
+        if log and log.exists():
+            try:
+                offset = log.stat().st_size
+            except OSError:
+                offset = 0
         return {"log_path": log, "offset": offset}
 
     def wait_for_message(self, state: Dict[str, Any], timeout: float) -> Tuple[Optional[str], Dict[str, Any]]:
@@ -49,7 +88,7 @@ class CodexLogReader:
     def latest_message(self) -> Optional[str]:
         """直接获取最新一条回复"""
         log_path = self._latest_log()
-        if not log_path:
+        if not log_path or not log_path.exists():
             return None
         try:
             with log_path.open("rb") as handle:
@@ -82,16 +121,22 @@ class CodexLogReader:
 
     def _read_since(self, state: Dict[str, Any], timeout: float, block: bool) -> Tuple[Optional[str], Dict[str, Any]]:
         deadline = time.time() + timeout
-        current_path = state.get("log_path")
+        current_path = self._normalize_path(state.get("log_path"))
         offset = state.get("offset", 0)
 
         def ensure_log() -> Path:
-            log = current_path
-            if log is None or not log.exists():
-                log = self._latest_log()
-            if log is None:
-                raise FileNotFoundError("未找到 Codex session 日志")
-            return log
+            candidates = [
+                self._preferred_log if self._preferred_log and self._preferred_log.exists() else None,
+                current_path if current_path and current_path.exists() else None,
+            ]
+            for candidate in candidates:
+                if candidate:
+                    return candidate
+            latest = self._scan_latest()
+            if latest:
+                self._preferred_log = latest
+                return latest
+            raise FileNotFoundError("未找到 Codex session 日志")
 
         while True:
             try:
@@ -122,9 +167,10 @@ class CodexLogReader:
                     if message is not None:
                         return message, {"log_path": log_path, "offset": offset}
 
-            latest = self._latest_log()
+            latest = self._scan_latest()
             if latest and latest != log_path:
                 current_path = latest
+                self._preferred_log = latest
                 try:
                     offset = latest.stat().st_size
                 except OSError:
@@ -174,8 +220,15 @@ class CodexCommunicator:
 
         self.timeout = int(os.environ.get("CODEX_SYNC_TIMEOUT", "30"))
         self.marker_prefix = "ask"
-        self.log_reader = CodexLogReader()
-        self.project_session_file = Path.cwd() / ".codex-session"
+        preferred_log = self.session_info.get("codex_session_path")
+        self.log_reader = CodexLogReader(log_path=preferred_log)
+        self.project_session_file = self.session_info.get("_session_file")
+
+        self._prime_log_binding()
+
+        healthy, msg = self._check_session_health()
+        if not healthy:
+            raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 claude_codex 启动新会话")
 
     def _load_session_info(self):
         if "CODEX_SESSION_ID" in os.environ:
@@ -184,16 +237,39 @@ class CodexCommunicator:
                 "runtime_dir": os.environ["CODEX_RUNTIME_DIR"],
                 "input_fifo": os.environ["CODEX_INPUT_FIFO"],
                 "output_fifo": os.environ.get("CODEX_OUTPUT_FIFO", ""),
+                "_session_file": None,
             }
 
         project_session = Path.cwd() / ".codex-session"
-        if project_session.exists():
-            try:
-                with open(project_session, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
+        if not project_session.exists():
+            return None
+
+        try:
+            with open(project_session, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, dict):
                 return None
-        return None
+
+            if not data.get("active", False):
+                return None
+
+            runtime_dir = Path(data.get("runtime_dir", ""))
+            if not runtime_dir.exists():
+                return None
+
+            data["_session_file"] = str(project_session)
+            return data
+
+        except Exception:
+            return None
+
+    def _prime_log_binding(self) -> None:
+        """确保在会话启动时尽早绑定日志路径和会话ID"""
+        log_hint = self.log_reader.current_log_path()
+        if not log_hint:
+            return
+        self._remember_codex_session(log_hint)
 
     def _check_session_health(self):
         try:
@@ -244,7 +320,8 @@ class CodexCommunicator:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
             marker, state = self._send_message(question)
-            self._remember_codex_session(state.get("log_path"))
+            log_hint = state.get("log_path") or self.log_reader.current_log_path()
+            self._remember_codex_session(log_hint)
             print(f"✅ 已发送到Codex (标记: {marker[:12]}...)")
             print("提示: 使用 /cpend 查看最新回复")
             return True
@@ -264,10 +341,13 @@ class CodexCommunicator:
             print(f"⏳ 等待Codex回复 (超时 {wait_timeout} 秒)...")
 
             message, new_state = self.log_reader.wait_for_message(state, wait_timeout)
+            log_hint = (new_state or {}).get("log_path") if isinstance(new_state, dict) else None
+            if not log_hint:
+                log_hint = self.log_reader.current_log_path()
+            self._remember_codex_session(log_hint)
             if message:
                 print("🤖 Codex回复:")
                 print(message)
-                self._remember_codex_session(new_state.get("log_path"))
                 return message
 
             print("⏰ Codex未在限定时间内回复，可稍后执行 /cpend 获取最新答案")
@@ -277,12 +357,15 @@ class CodexCommunicator:
             return None
 
     def consume_pending(self, display: bool = True):
+        current_path = self.log_reader.current_log_path()
+        self._remember_codex_session(current_path)
         message = self.log_reader.latest_message()
+        if message:
+            self._remember_codex_session(self.log_reader.current_log_path())
         if not message:
             if display:
                 print("暂无 Codex 回复")
             return None
-        self._remember_codex_session(self.log_reader.current_log_path())
         if display:
             print(message)
         return message
@@ -313,8 +396,21 @@ class CodexCommunicator:
 
     def _remember_codex_session(self, log_path: Optional[Path]) -> None:
         if not log_path:
+            log_path = self.log_reader.current_log_path()
+            if not log_path:
+                return
+
+        try:
+            log_path_obj = log_path if isinstance(log_path, Path) else Path(str(log_path)).expanduser()
+        except Exception:
             return
-        project_file = self.project_session_file
+
+        self.log_reader.set_preferred_log(log_path_obj)
+
+        if not self.project_session_file:
+            return
+
+        project_file = Path(self.project_session_file)
         if not project_file.exists():
             return
         try:
@@ -323,8 +419,8 @@ class CodexCommunicator:
         except Exception:
             return
 
-        path_str = str(log_path)
-        session_id = self._extract_session_id(log_path)
+        path_str = str(log_path_obj)
+        session_id = self._extract_session_id(log_path_obj)
         resume_cmd = f"codex resume {session_id}" if session_id else None
         updated = False
 
@@ -345,43 +441,58 @@ class CodexCommunicator:
             data["active"] = True
             updated = True
 
-        if not updated:
-            return
+        if updated:
+            tmp_file = project_file.with_suffix(".tmp")
+            try:
+                with tmp_file.open("w", encoding="utf-8") as handle:
+                    json.dump(data, handle, ensure_ascii=False, indent=2)
+                os.replace(tmp_file, project_file)
+            except Exception:
+                if tmp_file.exists():
+                    tmp_file.unlink(missing_ok=True)
 
-        tmp_file = project_file.with_suffix(".tmp")
-        try:
-            with tmp_file.open("w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_file, project_file)
-        except Exception:
-            if tmp_file.exists():
-                tmp_file.unlink(missing_ok=True)
+        self.session_info["codex_session_path"] = path_str
+        if session_id:
+            self.session_info["codex_session_id"] = session_id
+        if resume_cmd:
+            self.session_info["codex_start_cmd"] = resume_cmd
 
     @staticmethod
     def _extract_session_id(log_path: Path) -> Optional[str]:
-        stem = log_path.stem
-        # Expect pattern rollout-...-<uuid>
-        parts = stem.split("-")
-        if len(parts) < 2:
-            return None
-        candidate = "-".join(parts[-5:]) if len(parts) >= 5 else parts[-1]
-        # Validate UUID-like structure (versionless)
-        if len(candidate) == 36 and candidate.count("-") == 4:
-            return candidate
+        for source in (log_path.stem, log_path.name):
+            match = SESSION_ID_PATTERN.search(source)
+            if match:
+                return match.group(0)
+
         try:
-            # Fallback to reading the first line session_meta
             with log_path.open("r", encoding="utf-8") as handle:
                 first_line = handle.readline()
         except OSError:
             return None
+
+        if not first_line:
+            return None
+
+        match = SESSION_ID_PATTERN.search(first_line)
+        if match:
+            return match.group(0)
+
         try:
             entry = json.loads(first_line)
-            payload = entry.get("payload", {})
-            session_meta_id = payload.get("id")
-            if isinstance(session_meta_id, str):
-                return session_meta_id
         except Exception:
             return None
+
+        payload = entry.get("payload", {}) if isinstance(entry, dict) else {}
+        candidates = [
+            entry.get("session_id") if isinstance(entry, dict) else None,
+            payload.get("id") if isinstance(payload, dict) else None,
+            payload.get("session", {}).get("id") if isinstance(payload, dict) else None,
+        ]
+        for candidate in candidates:
+            if isinstance(candidate, str):
+                match = SESSION_ID_PATTERN.search(candidate)
+                if match:
+                    return match.group(0)
         return None
 
 
