@@ -1,180 +1,126 @@
-# Claude Codex Daemon
+# Claude-Codex 双窗口系统
 
-为 Claude Code 提供持久、隔离的 Codex 后台服务。该工具在本地启动一个守护进程，为每个终端或窗口分配独立的 Codex 实例，并自动处理生命周期、日志及历史记录。
-
-## 关键特性
-
-- **多客户端隔离**：每个 `claude_codex` 会话都会生成独立的 `CODEX_CLIENT_ID`，守护进程按客户端维护专属的 `ClaudeCodexManager` 与子进程，互不干扰。
-- **自动恢复**：历史记录与配置保存在 `/tmp/codex-<instance>-history.json`，同一客户端重连时会自动恢复上下文。
-- **真实 Codex 调用**：守护进程子进程通过 `codex exec --json` 调用 Codex CLI，解析流式输出并返回最终答案。
-- **健壮通信**：Unix Socket + 超时重试，单次请求默认 180 秒超时，并自动截断响应换行。
-- **运行洞察**：通过 `/cpend` 与 `/cping` 快速确认 Codex 状态与未读回复。
-- **自动清理**：当客户端 60 秒无活动时，对应 Codex 子进程会自动关闭，可通过 `CODEX_CLIENT_IDLE_TIMEOUT` 环境变量调整。
-
-## 组件概览
-
-```
-claude_codex (脚本)
-  └─ 设置 CODEX_CLIENT_ID、启动 codex_daemon.py、拉起 Claude Code
-
-codex_daemon.py (守护进程)
-  ├─ 监听 /tmp/codex-daemon.sock
-  ├─ 按 client_id 懒加载 ClaudeCodexManager
-  └─ 代理 /codex-* 命令至对应 Codex 实例
-
-claude_codex_manager.py
-  ├─ 生成/恢复 instance_id、管理历史文件
-  ├─ fork CodexProcess 子进程
-  └─ 监控子进程并自动重启
-
-codex_process.py
-  ├─ 接收查询/配置请求
-  ├─ 构造提示词并调用 `codex exec --json`
-  └─ 保持对话历史、配置状态
-```
+Claude 与 Codex 双窗口协作工具，支持异步/同步通信和上下文恢复。
 
 ## 快速开始
 
-1. **准备环境**
-   - Python ≥ 3.8
-   - 已安装 Codex CLI (`codex --version`)
-   - Linux 或 macOS（需要 Unix socket 支持）
-
-2. **安装 / 卸载**
-   ```bash
-   git clone <项目地址>
-   cd claude_codex_lock
-   sudo ./install.sh install        # 安装（默认写入原 sudo 用户的家目录）
-
-   # 卸载（任选其一）
-   sudo ./install.sh uninstall
-   claude_codex-install uninstall
-   ```
-   默认会将项目安装到 `~/.local/share/claude_codex-lock`，并创建以下链接：
-   - `~/.local/bin/claude_codex`：一键启动守护进程 + Claude Code
-   - `~/.local/bin/claude_codex-install`：全局安装/卸载入口
-   - `~/.claude/commands/codex`（如不存在则自动创建）：在 Claude 中可直接使用 `/codex-*` 命令
-
-   脚本要求使用 `sudo` 运行，并会自动识别 `SUDO_USER` 将文件安装/链接到该用户的家目录。可通过环境变量定制：
-   - `CODEX_INSTALL_PREFIX`：安装目录（默认：`~/.local/share/claude_codex-lock`，`~` 为原 sudo 用户）
-   - `CODEX_BIN_DIR`：bin 目录（默认：`~/.local/bin`）
-   - `CODEX_CLAUDE_COMMAND_DIR`：Claude 命令目录
-
-3. **启动守护进程并运行 Claude Code**
-   ```bash
-   claude_codex
-   ```
-- 守护进程默认使用 `~/.codex_runtime/codex-daemon.sock`，适配多数受限环境。
-- 首次启动会分配一个随机 `CODEX_CLIENT_ID` 并写入子进程环境。
-- 如需自定义，可在运行前设置 `CODEX_CLIENT_ID=my-session claude_codex`。
-
-   安装时会在 `~/.local/bin` 额外提供下列命令，方便在终端直接操作 Codex：
-   - `codex-cli <subcommand>`：统一入口，支持 `ask`、`pending`、`ping` 等子命令。
-   - `cask` / `cpend` / `cping`：最常用的 Codex 快捷命令。
-   - 例如：`cask "who are you"`、`cpend`、`cping`。
-   - 若需复用现有会话，可通过环境变量 `CODEX_CLIENT_ID`、命令参数 `--client-id <ID>`，或利用当前目录下自动生成的 `.codex_client_id` 文件（`claude_codex` 会在启动时写入该文件并在后续运行中复用）。
-   - 运行 `claude_codex -C` 可在启动 Claude 及 Codex 时同时恢复 Codex 历史上下文；若仅希望恢复 Claude 的上下文，则保持原有 `claude` 参数（例如 `-c`）即可。
-
-4. **在 Claude Code 中使用命令**
-   ```
-   /cask …          # 提问（默认异步，使用 --wait 同步）
-   /cpend        # 查看最新 Codex 回复
-   /cping        # 测试与 Codex 的连通性
-   ```
-
-## 多客户端使用
-
-- 每个终端/窗口运行 `claude_codex` 都会携带独立 `CODEX_CLIENT_ID`。
-- 守护进程按 `client_id` 存储历史、配置和 socket，确保上下文不会串线。
-- 同一客户端再次启动会尝试复用其历史文件并恢复 conversation context。
-- 每个客户端若超过 60 秒无请求，会被守护进程自动清理以释放资源，可通过 `CODEX_CLIENT_IDLE_TIMEOUT=<秒>` 调整阈值。
-
-### 查看全局状态
-
+### 安装
 ```bash
-python3 codex_daemon.py --health
+./install.sh install
 ```
 
-响应示例：
-```json
-{
-  "status": "healthy",
-  "uptime": 125.3,
-  "client_count": 2,
-  "clients": [
-    {"client_id": "clientA", "codex_active": true, "instance_id": "0e6f9e42"},
-    {"client_id": "clientB", "codex_active": false, "instance_id": null}
-  ]
-}
-```
+安装后会创建以下命令：
+- `claude_codex` - 启动双窗口模式
+- `cask` / `cask-w` - 发送问题（异步/同步）
+- `cping` - 测试连通性
+- `cpend` - 查看最新回复
 
-也可以直接向 socket 查询：
+### 启动
 ```bash
-python3 - <<'PY'
-import socket, json
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect('/tmp/codex-daemon.sock')
-sock.send(json.dumps({"command": "/codex-status"}).encode('utf-8'))
-print(sock.recv(4096).decode())
-PY
-```
-
-## 关闭服务
-
-- **查看未读**：在 Claude 中执行 `/cpend` 查看并清空待处理回复。
-  ```bash
-  python3 - <<'PY'
-  import socket, json
-  sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-  sock.connect('/tmp/codex-daemon.sock')
-  sock.send(json.dumps({"command": "/codex-shutdown"}).encode('utf-8'))
-  print(sock.recv(4096).decode())
-  PY
-  ```
-- **紧急终止**（不推荐）：`pkill -f codex_daemon.py`，可能遗留 socket/历史文件。
-
-## 调试与日志
-
-- 守护进程日志：`/tmp/codex-daemon.log`
-- 子进程日志：`/tmp/codex-<instance>-debug.log`
-- 历史文件：`/tmp/codex-<instance>-history.json`
-- 守护进程健康校验：`python3 codex_daemon.py --health`
-- 若 `codex exec` 命令缺失或超时，子进程会返回明确的错误提示。
-- 如需手动清理，可删除 `~/.codex_runtime/codex-daemon.sock`、`~/.codex_runtime/codex-daemon.pid`。
-
-若系统策略禁止在 `/tmp` 创建 Unix Socket，可在启动前改用自定义路径（程序会自动尝试 `~/.codex_runtime/`，仍不行时退回 `/tmp/codex-$USER/`）：
-
-```bash
-export CODEX_DAEMON_SOCKET="$HOME/.codex_runtime/codex-daemon.sock"
-export CODEX_DAEMON_PID="$HOME/.codex_runtime/codex-daemon.pid"
+# 基础启动
 claude_codex
+
+# 恢复 Claude 上下文
+claude_codex -c
+
+# 恢复 Codex 上下文
+claude_codex -C
+
+# 在指定目录启动
+claude_codex /path/to/project
 ```
 
-摘掉这些环境变量即可恢复默认行为。
+## 核心命令
 
-若 `~/.codex_runtime` 目录曾以 root 身份创建，请先 `chmod -R 700 ~/.codex_runtime && chown -R $USER ~/.codex_runtime` 或直接删除后再运行，避免因权限导致守护进程不断退回其他路径。
+在 Claude 窗口中使用：
 
-## 开发提示
+```bash
+cask <问题>         # 异步发送问题
+cask-w <问题>       # 同步等待回复
+cping               # 测试连通性
+cpend               # 查看最新回复
+```
 
-### 项目技术介绍
-- 采用 Python 3 编写的守护进程 + 子进程架构，`codex_daemon.py` 负责长连接管理，`claude_codex_manager.py` 负责实例生命周期，`codex_process.py` 处理实际 Codex 调用。
-- 通过 Unix Domain Socket/FIFO 作为主通信通道，结合结构化 JSON 协议，实现 CLI 与守护进程之间的双向指令流。
-- 历史记录、安全写入与恢复逻辑集中在 `ClaudeCodexManager`，利用 0600 权限、`O_NOFOLLOW` 防止符号链接攻击，并提供分钟级实例恢复。
-- Slash 命令通过 `codex_commands.py` 与 `commands/codex` 脚本嵌入 Claude CLI，保持与前端互动时的统一体验。
+### 使用示例
 
-### 核心技术特点
-- **多客户端复用**：基于 `client_id` 的懒加载管理器，动态分配 Codex 子进程并复用历史。
-- **健壮通信链路**：内建重试、超时控制以及健康检查接口，降低短暂抖动导致的失败。
-- **自动清理与守护**：守护线程检测空闲会话，触发 `claude_cleanup_on_exit` 进行资源回收，减少僵尸进程风险。
-- **安全运行环境**：运行目录权限检查、套接字所有者校验以及可配置的 runtime 目录，适配多种受限环境。
-- **扩展友好**：明确的模块划分与辅助方法（如 `_handle_config_request`、`get_current_config`），便于新增配置项或接入更多命令。
+**异步模式（推荐）：**
+```bash
+cask "写一个快速排序函数"
+# 立即返回，继续其他工作
+cpend  # 稍后查看结果
+```
 
-- 多客户端行为已在 `codex_daemon.py` 与 `claude_codex_manager.py` 内复用，新增特性时请确保保持 `client_id` 传递。
-- 对话历史默认保留最近 200 轮，可在 `codex_process.py` 内调整。
-- `_save_history` 使用安全写入策略（`O_NOFOLLOW`、权限 0600），修改时注意保持安全性。
-- 所有 CLI 调用默认 `--sandbox read-only`，如需写权限请在调用层扩展。
-- 安装脚本会在用户 `site-packages` 中写入 `.pth` 文件并自动导入 `codex_bootstrap`，因此可以直接使用 `python3 -c "print(handle_codex_command('/cask 你好'))"` 等命令（若使用自定义 Python 环境，请确保其能够读取用户级 `site-packages`），无需手动 import 或设置 `PYTHONPATH`。
+**同步模式：**
+```bash
+cask-w "解释快速排序原理"
+# 等待并直接显示结果
+```
 
----
+## 系统架构
 
-欢迎根据自身工作流扩展命令或加入更详细的监控。如发现问题，可通过守护进程日志与健康接口快速定位。祝使用愉快！***
+### 会话管理
+- 每次启动生成唯一会话 ID
+- 运行时目录：`/tmp/codex-<user>/<session-id>/`
+- 项目绑定文件：`.codex-session`
+
+### 通信机制
+- FIFO 管道：Claude → Codex 单向控制
+- tmux 日志监控：Codex 输出回传
+- 消息标记：确保回复匹配
+
+### 文件结构
+```
+/tmp/codex-<user>/<session-id>/
+├── input.fifo          # Claude → Codex 控制管道
+├── output.fifo         # Codex 输出监控
+├── codex.pid           # Codex 进程 PID
+├── claude.pid          # Claude 进程 PID
+├── bridge.pid          # 桥接器进程 PID
+├── status              # 运行状态
+└── bridge_output.log   # tmux 输出日志
+```
+
+## 环境变量
+
+```bash
+CODEX_SESSION_ID          # 会话标识
+CODEX_RUNTIME_DIR         # 运行时目录
+CODEX_INPUT_FIFO          # 输入管道路径
+CODEX_OUTPUT_FIFO         # 输出管道路径
+CODEX_TMUX_SESSION        # tmux 会话名
+CODEX_SYNC_TIMEOUT        # 同步超时（默认 30s）
+```
+
+## 故障排除
+
+### 检查连通性
+```bash
+cping
+```
+
+### 查看会话信息
+```bash
+cat .codex-session
+```
+
+### 手动清理
+```bash
+# 查找会话目录
+ls /tmp/codex-$(whoami)/
+
+# 清理指定会话
+rm -rf /tmp/codex-$(whoami)/dual-<session-id>
+```
+
+## 卸载
+
+```bash
+./install.sh uninstall
+```
+
+## 技术要点
+
+- **Python 3.8+** 和 **tmux** 必须安装
+- 支持多种终端：gnome-terminal、konsole、alacritty、xterm
+- 自动清理：退出时清理所有临时文件和子进程
+- 权限隔离：运行时目录权限 600/644

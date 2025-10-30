@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""
+cask-w - 同步模式发送问题到Codex
+等价于 cask --wait
+"""
+
+import sys
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(script_dir))
+
+try:
+    from codex_comm import CodexCommunicator
+
+    def main():
+        args = sys.argv[1:]
+        if not args:
+            print("❌ 请提供问题内容")
+            print("用法: cask-w <问题>")
+            return 1
+
+        question = ' '.join(args)
+        if not question.strip():
+            print("❌ 问题内容不能为空")
+            return 1
+
+        try:
+            comm = CodexCommunicator()
+            comm.ask_sync(question)
+            return 0
+        except Exception as e:
+            print(f"❌ 执行失败: {e}")
+            return 1
+
+    if __name__ == "__main__":
+        sys.exit(main())
+
+except ImportError as e:
+    print(f"❌ 导入模块失败: {e}")
+    print("请确保 codex_comm.py 在同一目录下")
+    sys.exit(1)

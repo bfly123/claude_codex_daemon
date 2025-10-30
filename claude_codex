@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-claude-codex-dual - Claude-Codex 双窗口模式启动器
+claude_codex - Claude-Codex 双窗口模式启动器
 同时启动Claude和Codex两个窗口，建立单向控制通道
 """
 
@@ -292,10 +292,10 @@ exec tmux attach -t "$TMUX_SESSION"
         print("✅ Claude窗口就绪")
         print()
         print("🎯 可用命令:")
-        print("   /codex-ask <问题>              - 异步发送问题")
-        print("   /codex-ask --wait <问题>       - 同步等待回复")
-        print("   /codex-status                  - 查看连接状态")
-        print("   /codex-ping                    - 测试连通性")
+        print("   cask <问题>         - 异步发送问题")
+        print("   cask-w <问题>       - 同步等待回复")
+        print("   cping               - 测试连通性")
+        print("   cpend               - 查看最新回复")
         print()
 
         # 启动Claude Code
@@ -399,10 +399,10 @@ exec tmux attach -t "$TMUX_SESSION"
 def show_help():
     """显示帮助信息"""
     help_text = """
-claude-codex-dual - Claude-Codex 双窗口模式启动器
+claude_codex - Claude-Codex 双窗口模式启动器
 
 用法:
-    claude-codex-dual [OPTIONS] [COMMAND] [ARGS]...
+    claude_codex [OPTIONS] [COMMAND] [ARGS]...
 
 功能:
     🚀 同时启动Claude和Codex两个窗口
@@ -411,20 +411,21 @@ claude-codex-dual - Claude-Codex 双窗口模式启动器
     🔄 支持中断恢复和错误处理
 
 选项:
-    --resume              恢复上次的会话
+    -c                    恢复Claude上下文
+    -C                    恢复Codex上下文
     --help, -h            显示帮助信息
 
 Claude命令 (在Claude窗口中使用):
-    /codex-ask <问题>              - 异步发送问题到Codex
-    /codex-ask --wait <问题>       - 同步等待Codex回复
-    /codex-status                  - 查看连接状态
-    /codex-ping                    - 测试连通性
-    /codex-history [n]             - 查看最近n条对话
+    cask <问题>         - 异步发送问题到Codex
+    cask-w <问题>       - 同步等待Codex回复
+    cping               - 测试连通性
+    cpend               - 查看最新回复
 
 示例:
-    claude-codex-dual                           # 启动双窗口模式
-    claude-codex-dual --resume                  # 恢复上次会话
-    claude-codex-dual /path/to/project          # 在项目目录启动
+    claude_codex                  # 启动双窗口模式
+    claude_codex -c               # 恢复Claude上下文
+    claude_codex -C               # 恢复Codex上下文
+    claude_codex /path/to/project # 在项目目录启动
 """
     print(help_text)
 

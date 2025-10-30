@@ -16,6 +16,7 @@ SCRIPTS_TO_LINK=(
 
 CLAUDE_MARKDOWN=(
   cask.md
+  cask-w.md
   cpend.md
   cping.md
 )
