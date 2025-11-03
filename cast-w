@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+cast-w 命令
+将输入转发到 Codex tmux 会话，默认使用 /cask-w 同步等待。
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+from typing import Tuple
+
+
+def _usage() -> None:
+    print("用法: cast-w <原始指令>", file=sys.stderr)
+    print('示例: cast-w "解释一下当前脚本作用"', file=sys.stderr)
+
+
+def _load_cast_module():
+    script_dir = Path(__file__).resolve().parent
+    cast_path = script_dir / "cast"
+    if not cast_path.exists():
+        raise RuntimeError("❌ 未找到 cast 命令脚本，请确认安装是否完整")
+
+    spec = importlib.util.spec_from_file_location("codex_cast", cast_path)
+    if not spec or not spec.loader:
+        raise RuntimeError("❌ 无法加载 cast 模块")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    return module
+
+
+def _prepare_payload(raw: str) -> str:
+    stripped = raw.lstrip()
+    if not stripped:
+        raise RuntimeError("❌ 指令内容不能为空")
+    if stripped.startswith("/"):
+        return raw
+    return f"/cask-w {raw}".strip()
+
+
+def _send(module, payload: str) -> Tuple[str, str]:
+    session, runtime = module._resolve_tmux_session()
+    module._ensure_tmux_session(session)
+    module._send_via_tmux(session, payload)
+    location = runtime or "tmux"
+    return session, location
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) <= 1:
+        _usage()
+        return 1
+
+    raw_command = " ".join(argv[1:])
+    if not raw_command.strip():
+        _usage()
+        return 1
+
+    try:
+        module = _load_cast_module()
+        payload = _prepare_payload(raw_command)
+        session, location = _send(module, payload)
+        print(f"✅ 已发送到 Codex 会话 ({session})")
+        print(f"📁 运行目录: {location}")
+        return 0
+    except Exception as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

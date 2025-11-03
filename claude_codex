@@ -16,6 +16,7 @@ import uuid
 import getpass
 import shlex
 import re
+import platform
 from pathlib import Path
 
 class ClaudeCodexDual:
@@ -40,7 +41,14 @@ class ClaudeCodexDual:
 
         # 会话管理
         self.session_id = f"dual-{int(time.time())}-{os.getpid()}"
-        self.runtime_dir = Path("/tmp") / f"codex-{getpass.getuser()}" / self.session_id
+
+        # 根据操作系统选择临时目录
+        if platform.system() == "Darwin":  # macOS
+            temp_base = Path("/tmp")
+        else:  # Linux
+            temp_base = Path("/tmp")
+
+        self.runtime_dir = temp_base / f"codex-{getpass.getuser()}" / self.session_id
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
 
         # 文件路径
@@ -62,6 +70,7 @@ class ClaudeCodexDual:
         self.daemon_socket = self.runtime_dir / "codex-daemon.sock"
         self.daemon_pid_file = self.runtime_dir / "codex-daemon.pid"
         self.client_id = f"codex-dual-{uuid.uuid4().hex[:8]}"
+        self._log_mtime_cutoff = None if self.resume_codex else time.time()
 
         # 历史会话信息
         self.previous_session = self._load_previous_session()
@@ -156,27 +165,21 @@ class ClaudeCodexDual:
         if isinstance(latest, dict):
             record.update(latest)
 
-        existing_codex_cmd = record.get("codex_start_cmd", "")
-        codex_cmd_to_store = self.codex_start_cmd
-        if (
-            isinstance(existing_codex_cmd, str)
-            and existing_codex_cmd.startswith("codex resume ")
-            and isinstance(self.codex_start_cmd, str)
-            and not self.codex_start_cmd.startswith("codex resume ")
-        ):
-            codex_cmd_to_store = existing_codex_cmd
-
         inferred_path, inferred_session = self._infer_codex_log()
-        if inferred_path and not record.get("codex_session_path"):
+        existing_path = record.get("codex_session_path")
+        if inferred_path and inferred_path != existing_path:
             record["codex_session_path"] = inferred_path
-        if inferred_session and not record.get("codex_session_id"):
+
+        existing_session = record.get("codex_session_id")
+        if inferred_session and inferred_session != existing_session:
             record["codex_session_id"] = inferred_session
-        if (
-            inferred_session
-            and isinstance(codex_cmd_to_store, str)
-            and not codex_cmd_to_store.startswith("codex resume ")
-        ):
+
+        if isinstance(self.codex_start_cmd, str) and self.codex_start_cmd.startswith("codex resume "):
+            codex_cmd_to_store = self.codex_start_cmd
+        elif inferred_session:
             codex_cmd_to_store = f"codex resume {inferred_session}"
+        else:
+            codex_cmd_to_store = self.codex_start_cmd
 
         record.update(
             {
@@ -241,12 +244,19 @@ class ClaudeCodexDual:
         except OSError:
             return None, None
 
+        cutoff = self._log_mtime_cutoff
         for candidate in reversed(logs):
+            try:
+                mtime = candidate.stat().st_mtime
+            except OSError:
+                continue
+            if cutoff and mtime < cutoff:
+                continue
             session_id = self._extract_session_id(candidate)
             if session_id:
                 return str(candidate), session_id
 
-        if logs:
+        if logs and cutoff is None:
             return str(logs[-1]), None
         return None, None
 
@@ -273,21 +283,47 @@ class ClaudeCodexDual:
 
     def detect_terminal(self):
         """检测可用的终端工具"""
-        terminals = [
-            "gnome-terminal",
-            "konsole",
-            "alacritty",
-            "xterm",
-            "xfce4-terminal"
-        ]
+        # 根据操作系统选择终端列表
+        if platform.system() == "Darwin":  # macOS
+            # 检查macOS原生终端应用
+            if self._check_macos_app("Terminal"):
+                print("✅ 检测到终端: Terminal.app")
+                return "Terminal.app"
+            elif self._check_macos_app("iTerm"):
+                print("✅ 检测到终端: iTerm.app")
+                return "iTerm.app"
 
-        for term in terminals:
-            if subprocess.run(["which", term], capture_output=True).returncode == 0:
-                print(f"✅ 检测到终端: {term}")
-                return term
+            # 检查通过Homebrew等安装的终端
+            terminals = ["alacritty", "xterm"]
+            for term in terminals:
+                if subprocess.run(["which", term], capture_output=True).returncode == 0:
+                    print(f"✅ 检测到终端: {term}")
+                    return term
+        else:  # Linux
+            terminals = [
+                "gnome-terminal",
+                "konsole",
+                "alacritty",
+                "xterm",
+                "xfce4-terminal"
+            ]
+            for term in terminals:
+                if subprocess.run(["which", term], capture_output=True).returncode == 0:
+                    print(f"✅ 检测到终端: {term}")
+                    return term
 
         print("⚠️ 未检测到图形终端，使用 tmux")
         return "tmux"
+
+    def _check_macos_app(self, app_name):
+        """检查macOS应用是否存在"""
+        try:
+            result = subprocess.run([
+                "osascript", "-e", f'exists application "{app_name}"'
+            ], capture_output=True, text=True)
+            return result.stdout.strip().lower() == "true"
+        except Exception:
+            return False
 
     def create_fifos(self):
         """创建FIFO管道"""
@@ -434,6 +470,22 @@ exec tmux attach -t "$TMUX_SESSION"
                 subprocess.run([
                     "tmux", "attach-session", "-t", f"codex-{self.session_id[:8]}"
                 ])
+
+            elif self.terminal_type == "Terminal.app" and platform.system() == "Darwin":
+                # macOS Terminal.app
+                cmd = [
+                    "osascript", "-e",
+                    f'tell application "Terminal" to do script "exec {str(script_file)}"'
+                ]
+                self.codex_process = subprocess.Popen(cmd)
+
+            elif self.terminal_type == "iTerm.app" and platform.system() == "Darwin":
+                # macOS iTerm2
+                cmd = [
+                    "osascript", "-e",
+                    f'tell application "iTerm" to create window with default profile command "{str(script_file)}"'
+                ]
+                self.codex_process = subprocess.Popen(cmd)
 
             elif self.terminal_type in ["gnome-terminal", "xfce4-terminal"]:
                 cmd = [

@@ -7,6 +7,8 @@ BIN_DIR="${CODEX_BIN_DIR:-$HOME/.local/bin}"
 readonly REPO_ROOT INSTALL_PREFIX BIN_DIR
 
 SCRIPTS_TO_LINK=(
+  cast
+  cast-w
   claude_codex
   cask
   cask-w
@@ -16,6 +18,7 @@ SCRIPTS_TO_LINK=(
 
 CLAUDE_MARKDOWN=(
   cast.md
+  cast-w.md
   cask.md
   cask-w.md
   cpend.md
