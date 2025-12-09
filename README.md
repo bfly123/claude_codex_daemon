@@ -3,6 +3,8 @@
 Claude 与 Codex 双窗口协作工具，支持会话隔离的 tmux 通信。 通过claude发送信息给codex 并从codex读取信息。
 目前支持linux系统和mac系统（未测试）。
 
+![Claude 与 Codex 双窗口示意图](figure.png)
+
 ## 安装
 
 ```bash
@@ -23,10 +25,10 @@ claude_codex -C -c
 在 Claude 窗口中使用：
 
 ```bash
-cask <问题>      # 异步发送问题
-cask-w <问题>    # 同步等待回复
-cpend            # 查看最新回复
-cping            # 测试连通性
+/cask <问题>      # 异步发送问题
+/cask-w <问题>    # 同步等待回复
+/cpend            # 查看最新回复
+/cping            # 测试连通性
 ```
 
 ## 项目结构
