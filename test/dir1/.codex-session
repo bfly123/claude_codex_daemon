@@ -1,0 +1,24 @@
+{
+  "codex_session_path": "/home/bfly/.codex/sessions/2025/12/09/rollout-2025-12-09T08-44-42-019b0091-510a-7a63-9e54-d39a61ed0e56.jsonl",
+  "codex_session_id": "019b0091-510a-7a63-9e54-d39a61ed0e56",
+  "session_id": "dual-1765241124-1154390",
+  "runtime_dir": "/tmp/codex-bfly/dual-1765241124-1154390",
+  "input_fifo": "/tmp/codex-bfly/dual-1765241124-1154390/input.fifo",
+  "output_fifo": "/tmp/codex-bfly/dual-1765241124-1154390/output.fifo",
+  "tmux_session": "codex-dual-176",
+  "tmux_log": "/tmp/codex-bfly/dual-1765241124-1154390/bridge_output.log",
+  "daemon_socket": "/tmp/codex-bfly/dual-1765241124-1154390/codex-daemon.sock",
+  "daemon_pid_file": "/tmp/codex-bfly/dual-1765241124-1154390/codex-daemon.pid",
+  "bridge_pid_file": "/tmp/codex-bfly/dual-1765241124-1154390/bridge.pid",
+  "bridge_log": "/tmp/codex-bfly/dual-1765241124-1154390/bridge.log",
+  "client_id": "codex-dual-2258d0ce",
+  "codex_start_cmd": "codex resume 019b008b-f218-77b1-98ea-f3dca8a6a93f",
+  "claude_args": [],
+  "flags": {
+    "resume": false,
+    "resume_claude": true,
+    "resume_codex": true
+  },
+  "active": true,
+  "started_at": "2025-12-09 08:45:26"
+}

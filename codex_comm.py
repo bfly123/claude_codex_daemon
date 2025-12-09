@@ -25,9 +25,10 @@ SESSION_ID_PATTERN = re.compile(
 class CodexLogReader:
     """读取 ~/.codex/sessions 内的 Codex 官方日志"""
 
-    def __init__(self, root: Path = SESSION_ROOT, log_path: Optional[Path] = None):
+    def __init__(self, root: Path = SESSION_ROOT, log_path: Optional[Path] = None, session_id_filter: Optional[str] = None):
         self.root = Path(root).expanduser()
         self._preferred_log = self._normalize_path(log_path)
+        self._session_id_filter = session_id_filter
 
     def set_preferred_log(self, log_path: Optional[Path]) -> None:
         self._preferred_log = self._normalize_path(log_path)
@@ -52,6 +53,14 @@ class CodexLogReader:
             )
         except OSError:
             return None
+
+        # 按 session_id 过滤
+        if self._session_id_filter:
+            for log in reversed(logs):
+                if self._session_id_filter in log.name:
+                    return log
+            return None
+
         return logs[-1] if logs else None
 
     def _latest_log(self) -> Optional[Path]:
@@ -221,7 +230,8 @@ class CodexCommunicator:
         self.timeout = int(os.environ.get("CODEX_SYNC_TIMEOUT", "30"))
         self.marker_prefix = "ask"
         preferred_log = self.session_info.get("codex_session_path")
-        self.log_reader = CodexLogReader(log_path=preferred_log)
+        bound_session_id = self.session_info.get("codex_session_id")
+        self.log_reader = CodexLogReader(log_path=preferred_log, session_id_filter=bound_session_id)
         self.project_session_file = self.session_info.get("_session_file")
 
         self._prime_log_binding()

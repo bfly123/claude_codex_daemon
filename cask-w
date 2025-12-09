@@ -1,42 +1,116 @@
 #!/usr/bin/env python3
 """
-cask-w - 同步模式发送问题到Codex
-等价于 cask --wait
+cask-w 命令
+将输入转发到 Codex tmux 会话，默认使用 /cask-w 同步等待。
 """
 
+from __future__ import annotations
+
+import importlib.machinery
+import importlib.util
 import sys
 from pathlib import Path
+from typing import Tuple
 
-script_dir = Path(__file__).resolve().parent
-sys.path.insert(0, str(script_dir))
 
-try:
+def _usage() -> None:
+    print("用法: cask-w <原始指令>", file=sys.stderr)
+    print('示例: cask-w "解释一下当前脚本作用"', file=sys.stderr)
+
+
+def _load_cask_module():
+    script_dir = Path(__file__).resolve().parent
+    cask_path = script_dir / "cask"
+    if not cask_path.exists():
+        raise RuntimeError("❌ 未找到 cask 命令脚本，请确认安装是否完整")
+
+    spec = importlib.util.spec_from_loader(
+        "codex_cask",
+        importlib.machinery.SourceFileLoader("codex_cask", str(cask_path))
+    )
+    if not spec or not spec.loader:
+        raise RuntimeError("❌ 无法加载 cask 模块")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    return module
+
+
+def _prepare_payload(raw: str) -> str:
+    # cask-w 应该原样转发，不添加前缀（与 cask 行为一致）
+    stripped = raw.strip()
+    if not stripped:
+        raise RuntimeError("❌ 指令内容不能为空")
+    return raw
+
+
+def _capture_log_state():
+    """在发送命令前捕获日志状态"""
+    script_dir = Path(__file__).resolve().parent
+    sys.path.insert(0, str(script_dir))
+
     from codex_comm import CodexCommunicator
+    comm = CodexCommunicator()
+    return comm.log_reader.capture_state()
 
-    def main():
-        args = sys.argv[1:]
-        if not args:
-            print("❌ 请提供问题内容")
-            print("用法: cask-w <问题>")
-            return 1
 
-        question = ' '.join(args)
-        if not question.strip():
-            print("❌ 问题内容不能为空")
-            return 1
+def _send(module, payload: str) -> Tuple[str, str]:
+    session, runtime = module._resolve_tmux_session()
+    module._ensure_tmux_session(session)
+    module._send_via_tmux(session, payload)
+    location = runtime or "tmux"
+    return session, location
 
-        try:
-            comm = CodexCommunicator()
-            comm.ask_sync(question)
-            return 0
-        except Exception as e:
-            print(f"❌ 执行失败: {e}")
-            return 1
 
-    if __name__ == "__main__":
-        sys.exit(main())
+def _wait_for_reply(initial_state: dict, timeout: int = 30) -> str:
+    """等待并获取新的 Codex 回复"""
+    script_dir = Path(__file__).resolve().parent
+    sys.path.insert(0, str(script_dir))
 
-except ImportError as e:
-    print(f"❌ 导入模块失败: {e}")
-    print("请确保 codex_comm.py 在同一目录下")
-    sys.exit(1)
+    from codex_comm import CodexCommunicator
+    import time
+
+    comm = CodexCommunicator()
+
+    # 等待新消息（基于发送前的状态）
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        message, new_state = comm.log_reader.wait_for_message(initial_state, timeout=1.0)
+        if message:
+            return message
+        # 更新状态继续等待
+        initial_state = new_state if new_state else initial_state
+
+    return "⏰ 超时：未在限定时间内收到 Codex 回复"
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) <= 1:
+        _usage()
+        return 1
+
+    raw_command = " ".join(argv[1:])
+    if not raw_command.strip():
+        _usage()
+        return 1
+
+    try:
+        # 在发送前捕获日志状态
+        initial_state = _capture_log_state()
+
+        module = _load_cask_module()
+        payload = _prepare_payload(raw_command)
+        session, location = _send(module, payload)
+
+        # 等待新的回复
+        print("⏳ 等待 Codex 回复...")
+        reply = _wait_for_reply(initial_state)
+        print("\n🤖 Codex 回复:")
+        print(reply)
+        return 0
+    except Exception as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

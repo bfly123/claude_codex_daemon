@@ -7,18 +7,14 @@ BIN_DIR="${CODEX_BIN_DIR:-$HOME/.local/bin}"
 readonly REPO_ROOT INSTALL_PREFIX BIN_DIR
 
 SCRIPTS_TO_LINK=(
-  cast
-  cast-w
-  claude_codex
   cask
   cask-w
+  claude_codex
   cpend
   cping
 )
 
 CLAUDE_MARKDOWN=(
-  cast.md
-  cast-w.md
   cask.md
   cask-w.md
   cpend.md
@@ -26,9 +22,12 @@ CLAUDE_MARKDOWN=(
 )
 
 LEGACY_SCRIPTS=(
+  cast
+  cast-w
   codex-ask
   codex-pending
   codex-ping
+  claude-codex-dual
 )
 
 usage() {
@@ -76,6 +75,60 @@ require_command() {
     echo "   请先安装 $pkg，再重新运行 install.sh"
     exit 1
   fi
+}
+
+# 根据 uname 返回 linux / macos / unknown
+detect_platform() {
+  local name
+  name="$(uname -s 2>/dev/null || echo unknown)"
+  case "$name" in
+    Linux) echo "linux" ;;
+    Darwin) echo "macos" ;;
+    *) echo "unknown" ;;
+  esac
+}
+
+print_tmux_install_hint() {
+  local platform
+  platform="$(detect_platform)"
+  case "$platform" in
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        echo "   macOS: 运行 'brew install tmux'"
+      else
+        echo "   macOS: 未检测到 Homebrew，可先安装 https://brew.sh 然后执行 'brew install tmux'"
+      fi
+      ;;
+    linux)
+      if command -v apt-get >/dev/null 2>&1; then
+        echo "   Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y tmux"
+      elif command -v dnf >/dev/null 2>&1; then
+        echo "   Fedora/CentOS/RHEL: sudo dnf install -y tmux"
+      elif command -v yum >/dev/null 2>&1; then
+        echo "   CentOS/RHEL: sudo yum install -y tmux"
+      elif command -v pacman >/dev/null 2>&1; then
+        echo "   Arch/Manjaro: sudo pacman -S tmux"
+      elif command -v apk >/dev/null 2>&1; then
+        echo "   Alpine: sudo apk add tmux"
+      elif command -v zypper >/dev/null 2>&1; then
+        echo "   openSUSE: sudo zypper install -y tmux"
+      else
+        echo "   Linux: 请使用发行版自带的包管理器安装 tmux"
+      fi
+      ;;
+    *)
+      echo "   请参考 https://github.com/tmux/tmux/wiki/Installing 获取 tmux 安装方法"
+      ;;
+  esac
+}
+
+require_tmux() {
+  if command -v tmux >/dev/null 2>&1; then
+    return
+  fi
+  echo "❌ 缺少依赖: tmux"
+  print_tmux_install_hint
+  exit 1
 }
 
 copy_project() {
@@ -140,7 +193,7 @@ install_claude_commands() {
 
 install_requirements() {
   require_command python3 python3
-  require_command tmux tmux
+  require_tmux
 }
 
 install_all() {

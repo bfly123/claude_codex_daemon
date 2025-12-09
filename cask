@@ -1,62 +1,124 @@
 #!/usr/bin/env python3
 """
-cask 命令入口点
-支持同步和异步两种模式
+cast 命令
+将 Claude 中的原始输入转发到 Codex tmux 会话，并触发执行。
 """
 
-import sys
+from __future__ import annotations
+
+import json
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
+from typing import Optional, Tuple
 
-# 添加脚本目录到Python路径
-script_dir = Path(__file__).resolve().parent
-sys.path.insert(0, str(script_dir))
 
-try:
-    from codex_comm import CodexCommunicator
+def _usage() -> None:
+    print("用法: cast <原始指令>", file=sys.stderr)
+    print('示例: cast "/cask 解释一下当前脚本作用"', file=sys.stderr)
 
-    def main():
-        # 解析命令行参数
-        args = sys.argv[1:]
-        if not args:
-            print("❌ 请提供问题内容")
-            print("用法: cask [--wait|-w] <问题>")
-            return 1
 
-        # 检查是否为同步模式
-        wait_mode = False
-        wait_args = ['--wait', '-w']
+def _load_session_from_env() -> Optional[Tuple[str, Optional[str]]]:
+    session = os.environ.get("CODEX_TMUX_SESSION")
+    runtime = os.environ.get("CODEX_RUNTIME_DIR")
+    if session:
+        return session, runtime
+    return None
 
-        if args[0] in wait_args:
-            wait_mode = True
-            question = ' '.join(args[1:]) if len(args) > 1 else ''
-        else:
-            question = ' '.join(args)
 
-        if not question.strip():
-            print("❌ 问题内容不能为空")
-            return 1
+def _load_session_from_file() -> Optional[Tuple[str, Optional[str]]]:
+    project_file = Path.cwd() / ".codex-session"
+    if not project_file.exists():
+        return None
 
-        try:
-            comm = CodexCommunicator()
+    try:
+        data = json.loads(project_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"❌ 无法解析 .codex-session: {exc}", file=sys.stderr)
+        return None
 
-            if wait_mode:
-                # 同步模式
-                comm.ask_sync(question)
-            else:
-                # 异步模式
-                comm.ask_async(question)
+    if not isinstance(data, dict):
+        return None
+    if not data.get("active"):
+        return None
 
-            return 0
+    session = data.get("tmux_session")
+    runtime = data.get("runtime_dir")
+    if not session:
+        return None
+    return str(session), str(runtime) if runtime else None
 
-        except Exception as e:
-            print(f"❌ 执行失败: {e}")
-            return 1
 
-    if __name__ == "__main__":
-        sys.exit(main())
+def _resolve_tmux_session() -> Tuple[str, Optional[str]]:
+    info = _load_session_from_env()
+    if info:
+        return info
+    info = _load_session_from_file()
+    if info:
+        return info
+    raise RuntimeError("❌ 未找到 Codex 会话，请先运行 claude_codex")
 
-except ImportError as e:
-    print(f"❌ 导入模块失败: {e}")
-    print("请确保 codex_comm.py 在同一目录下")
-    sys.exit(1)
+
+def _ensure_tmux_session(session: str) -> None:
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", session],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"❌ tmux 会话不存在: {session}\n提示: 请确认 claude_codex 正在运行")
+
+
+def _send_via_tmux(session: str, payload: str) -> None:
+    sanitized = payload.replace("\r", " ")
+    sanitized = sanitized.replace("\n", " ").strip()
+    if not sanitized:
+        raise RuntimeError("❌ 传入的指令为空")
+
+    buffer_name = f"cast-{os.getpid()}-{int(time.time() * 1000)}"
+    encoded = sanitized.encode("utf-8")
+
+    def run_tmux(args, **kwargs):
+        cmd = ["tmux"] + args
+        subprocess.run(cmd, check=True, **kwargs)
+
+    run_tmux(["load-buffer", "-b", buffer_name, "-"], input=encoded)
+    run_tmux(["paste-buffer", "-t", session, "-b", buffer_name])
+    run_tmux(["delete-buffer", "-b", buffer_name])
+
+    # Give tmux a brief moment to paste before sending Enter
+    time.sleep(0.05)
+    # Paste does not trigger execution; always send Enter to run the command
+    run_tmux(["send-keys", "-t", session, "C-m"])
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) <= 1:
+        _usage()
+        return 1
+
+    raw_command = " ".join(argv[1:])
+    if not raw_command.strip():
+        _usage()
+        return 1
+
+    try:
+        session, runtime = _resolve_tmux_session()
+        _ensure_tmux_session(session)
+        _send_via_tmux(session, raw_command)
+        location = runtime or "tmux"
+        print(f"✅ 已发送到 Codex 会话 ({session})")
+        print(f"📁 运行目录: {location}")
+        return 0
+    except subprocess.CalledProcessError as exc:
+        print(f"❌ tmux 执行失败: {exc}", file=sys.stderr)
+        return exc.returncode or 1
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
