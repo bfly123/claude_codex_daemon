@@ -1,6 +1,6 @@
 {
-  "codex_session_path": "/home/bfly/.codex/sessions/2025/12/09/rollout-2025-12-09T08-44-42-019b0091-510a-7a63-9e54-d39a61ed0e56.jsonl",
-  "codex_session_id": "019b0091-510a-7a63-9e54-d39a61ed0e56",
+  "codex_session_path": "/home/bfly/.codex/sessions/2025/12/09/rollout-2025-12-09T14-54-25-019b01e3-cfd2-7b41-b0c0-817e1b917e21.jsonl",
+  "codex_session_id": "019b01e3-cfd2-7b41-b0c0-817e1b917e21",
   "session_id": "dual-1765241124-1154390",
   "runtime_dir": "/tmp/codex-bfly/dual-1765241124-1154390",
   "input_fifo": "/tmp/codex-bfly/dual-1765241124-1154390/input.fifo",
@@ -19,6 +19,7 @@
     "resume_claude": true,
     "resume_codex": true
   },
-  "active": true,
-  "started_at": "2025-12-09 08:45:26"
+  "active": false,
+  "started_at": "2025-12-09 08:45:26",
+  "ended_at": "2025-12-10 10:39:12"
 }

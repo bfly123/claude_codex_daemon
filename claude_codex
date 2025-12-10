@@ -19,6 +19,19 @@ import re
 import platform
 from pathlib import Path
 
+
+def is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+
+
+def get_wsl_version() -> int:
+    if os.environ.get("WSL_INTEROP"):
+        return 2
+    return 1
+
 class ClaudeCodexDual:
     _RESUME_FLAGS = {"-c", "-C", "--resume"}
     _SESSION_ID_PATTERN = re.compile(
@@ -283,7 +296,10 @@ class ClaudeCodexDual:
 
     def detect_terminal(self):
         """检测可用的终端工具"""
-        # 根据操作系统选择终端列表
+        if is_wsl():
+            print("✅ WSL 环境，使用 tmux")
+            return "tmux"
+
         if platform.system() == "Darwin":  # macOS
             # 检查macOS原生终端应用
             if self._check_macos_app("Terminal"):
@@ -327,6 +343,11 @@ class ClaudeCodexDual:
 
     def create_fifos(self):
         """创建FIFO管道"""
+        if is_wsl() and get_wsl_version() == 1:
+            print("❌ WSL 1 不支持 FIFO 管道，请升级到 WSL 2")
+            print("   运行: wsl --set-version <distro> 2")
+            return False
+
         print("🔧 创建通信管道...")
 
         try:

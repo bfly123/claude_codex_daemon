@@ -89,3 +89,15 @@ claude_codex/
 - tmux
 
 macOS 可使用 `brew install tmux`，Linux 根据发行版执行如 `sudo apt-get install tmux`、`sudo dnf install tmux`、`sudo pacman -S tmux` 等命令，确保在运行 `./install.sh install` 前已经安装好。
+
+## WSL 支持
+
+- **WSL 2**：完全支持
+- **WSL 1**：不支持（FIFO 限制）
+
+升级到 WSL 2：
+```powershell
+wsl --set-version <distro> 2
+```
+
+建议在 WSL 内部文件系统（如 `~/projects`）中运行，避免在 `/mnt/c` 下使用以获得更好的性能。

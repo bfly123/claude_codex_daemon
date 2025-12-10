@@ -88,6 +88,31 @@ detect_platform() {
   esac
 }
 
+is_wsl() {
+  [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null
+}
+
+get_wsl_version() {
+  if [[ -n "${WSL_INTEROP:-}" ]]; then
+    echo 2
+  else
+    echo 1
+  fi
+}
+
+check_wsl_compatibility() {
+  if is_wsl; then
+    local ver
+    ver="$(get_wsl_version)"
+    if [[ "$ver" == "1" ]]; then
+      echo "❌ WSL 1 不支持 FIFO 管道，请升级到 WSL 2"
+      echo "   运行: wsl --set-version <distro> 2"
+      exit 1
+    fi
+    echo "✅ 检测到 WSL 2 环境"
+  fi
+}
+
 print_tmux_install_hint() {
   local platform
   platform="$(detect_platform)"
@@ -345,6 +370,7 @@ with open('$settings_file', 'w') as f:
 }
 
 install_requirements() {
+  check_wsl_compatibility
   require_command python3 python3
   require_tmux
 }
