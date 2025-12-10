@@ -1,7 +1,7 @@
 # Claude-Codex
 
 Claude 与 Codex 双窗口协作工具，支持会话隔离的 tmux 通信。 通过claude发送信息给codex 并从codex读取信息。
-目前支持linux系统和mac系统（未测试）。
+目前支持linux系统和mac系统（未测试） windows支持 wsl2 （未测试）。
 
 ![Claude 与 Codex 双窗口示意图](figure.png)
 
