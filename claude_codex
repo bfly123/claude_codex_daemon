@@ -400,6 +400,7 @@ class ClaudeCodexDual:
 CLIENT_ID="{self.client_id}"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
+WORK_DIR="{os.getcwd()}"
 
 # 写入PID
 echo $$ > "$PID_FILE"
@@ -446,8 +447,7 @@ CODEX_START_CMD={json.dumps(self.codex_start_cmd)}
 
 # 启动或准备tmux会话
 if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    # 切换到当前工作目录并启动 codex
-    cd "$(pwd)"
+    cd "$WORK_DIR"
     tmux new-session -d -s "$TMUX_SESSION" "$CODEX_START_CMD"
     sleep 1
 fi
