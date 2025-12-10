@@ -61,8 +61,8 @@ def _send(module, payload: str) -> Tuple[str, str]:
     return session, location
 
 
-def _wait_for_reply(initial_state: dict, timeout: int = 30) -> str:
-    """等待并获取新的 Codex 回复"""
+def _wait_for_reply(initial_state: dict, timeout: int = 30) -> tuple:
+    """等待并获取新的 Codex 回复，返回 (message, final_state)"""
     script_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(script_dir))
 
@@ -71,16 +71,33 @@ def _wait_for_reply(initial_state: dict, timeout: int = 30) -> str:
 
     comm = CodexCommunicator()
 
-    # 等待新消息（基于发送前的状态）
     start_time = time.time()
     while time.time() - start_time < timeout:
         message, new_state = comm.log_reader.wait_for_message(initial_state, timeout=1.0)
         if message:
-            return message
-        # 更新状态继续等待
+            return message, new_state
         initial_state = new_state if new_state else initial_state
 
-    return "⏰ 超时：未在限定时间内收到 Codex 回复"
+    return None, initial_state
+
+
+def _save_pending_state(state: dict) -> None:
+    """保存超时时的状态，供 cpend 继续读取"""
+    import json
+    session_file = Path.cwd() / ".codex-session"
+    if not session_file.exists():
+        return
+    try:
+        with session_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["pending_state"] = {
+            "log_path": str(state.get("log_path")) if state.get("log_path") else None,
+            "offset": state.get("offset", 0),
+        }
+        with session_file.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def main(argv: list[str]) -> int:
@@ -94,19 +111,22 @@ def main(argv: list[str]) -> int:
         return 1
 
     try:
-        # 在发送前捕获日志状态
         initial_state = _capture_log_state()
-
         module = _load_cask_module()
         payload = _prepare_payload(raw_command)
         session, location = _send(module, payload)
 
-        # 等待新的回复
         print("⏳ 等待 Codex 回复...")
-        reply = _wait_for_reply(initial_state)
-        print("\n🤖 Codex 回复:")
-        print(reply)
-        return 0
+        reply, final_state = _wait_for_reply(initial_state)
+        if reply:
+            print("\n🤖 Codex 回复:")
+            print(reply)
+            return 0
+        else:
+            _save_pending_state(final_state)
+            print("\n⏰ 超时：未在限定时间内收到 Codex 回复")
+            print("提示: 稍后使用 cpend 查看回复")
+            return 0
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1

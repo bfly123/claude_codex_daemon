@@ -191,6 +191,159 @@ install_claude_commands() {
   echo "已更新 Claude 命令目录: $claude_dir"
 }
 
+CODEX_RULE_MARKER="## Codex 协作规则"
+
+remove_codex_mcp() {
+  local claude_config="$HOME/.claude.json"
+
+  if [[ ! -f "$claude_config" ]]; then
+    return
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "⚠️ 需要 python3 来检测 MCP 配置"
+    return
+  fi
+
+  local has_codex_mcp
+  has_codex_mcp=$(python3 -c "
+import json
+try:
+    with open('$claude_config', 'r') as f:
+        data = json.load(f)
+    found = False
+    for proj, cfg in data.get('projects', {}).items():
+        servers = cfg.get('mcpServers', {})
+        for name in list(servers.keys()):
+            if 'codex' in name.lower():
+                found = True
+                break
+        if found:
+            break
+    print('yes' if found else 'no')
+except:
+    print('no')
+" 2>/dev/null)
+
+  if [[ "$has_codex_mcp" == "yes" ]]; then
+    echo "⚠️ 检测到 codex 相关的 MCP 配置，正在移除以避免冲突..."
+    python3 -c "
+import json
+with open('$claude_config', 'r') as f:
+    data = json.load(f)
+removed = []
+for proj, cfg in data.get('projects', {}).items():
+    servers = cfg.get('mcpServers', {})
+    for name in list(servers.keys()):
+        if 'codex' in name.lower():
+            del servers[name]
+            removed.append(f'{proj}: {name}')
+with open('$claude_config', 'w') as f:
+    json.dump(data, f, indent=2)
+if removed:
+    print('已移除以下 MCP 配置:')
+    for r in removed:
+        print(f'  - {r}')
+"
+    echo "✅ Codex MCP 配置已清理"
+  fi
+}
+
+install_claude_md_config() {
+  local claude_md="$HOME/.claude/CLAUDE.md"
+  mkdir -p "$HOME/.claude"
+
+  if [[ -f "$claude_md" ]] && grep -q "$CODEX_RULE_MARKER" "$claude_md" 2>/dev/null; then
+    echo "Codex 协作规则已存在于 $claude_md"
+    return
+  fi
+
+  cat >> "$claude_md" << 'CODEX_RULES'
+
+## Codex 协作规则
+Codex 是通过 tmux 运行的另一个 AI 助手。当用户的意图涉及「询问/请教/协作 Codex」时，根据语义判断调用：
+
+判断标准（任一满足即调用）：
+- 用户提到 codex/Codex 且带有疑问/请求/协作语气
+- 用户想让 codex 做某事、给建议、帮忙看
+- 用户询问 codex 的状态或之前的回复
+
+命令选择：
+- 默认询问/协作 → `cask "<问题或指令>"`（异步，不等待）
+- 用户明确要求等待回复 → `cask-w "<问题或指令>"`（阻塞等待）
+- 只想查状态/连通性 → `cping`
+- 只想看之前的回复 → `cpend`
+
+示例：
+- "codex 对此有什么建议" → cask（默认异步）
+- "让 codex 帮忙看看" → cask
+- "问一下 codex 这个问题" → cask
+- "codex 那边怎么说" → cpend
+- "codex 还活着吗" → cping
+- "等 codex 回复" / "等待回复" → cask-w
+CODEX_RULES
+
+  echo "已添加 Codex 协作规则到 $claude_md"
+}
+
+install_settings_permissions() {
+  local settings_file="$HOME/.claude/settings.json"
+  mkdir -p "$HOME/.claude"
+
+  local perms_to_add=(
+    'Bash(cask:*)'
+    'Bash(cask-w:*)'
+    'Bash(cpend)'
+    'Bash(cping)'
+  )
+
+  if [[ ! -f "$settings_file" ]]; then
+    cat > "$settings_file" << 'SETTINGS'
+{
+  "permissions": {
+    "allow": [
+      "Bash(cask:*)",
+      "Bash(cask-w:*)",
+      "Bash(cpend)",
+      "Bash(cping)"
+    ],
+    "deny": []
+  }
+}
+SETTINGS
+    echo "已创建 $settings_file 并添加权限"
+    return
+  fi
+
+  local added=0
+  for perm in "${perms_to_add[@]}"; do
+    if ! grep -q "$perm" "$settings_file" 2>/dev/null; then
+      if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json, sys
+with open('$settings_file', 'r') as f:
+    data = json.load(f)
+if 'permissions' not in data:
+    data['permissions'] = {'allow': [], 'deny': []}
+if 'allow' not in data['permissions']:
+    data['permissions']['allow'] = []
+if '$perm' not in data['permissions']['allow']:
+    data['permissions']['allow'].append('$perm')
+with open('$settings_file', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+        added=1
+      fi
+    fi
+  done
+
+  if [[ $added -eq 1 ]]; then
+    echo "已更新 $settings_file 权限配置"
+  else
+    echo "权限配置已存在于 $settings_file"
+  fi
+}
+
 install_requirements() {
   require_command python3 python3
   require_tmux
@@ -198,13 +351,18 @@ install_requirements() {
 
 install_all() {
   install_requirements
+  remove_codex_mcp
   copy_project
   install_bin_links
   install_claude_commands
+  install_claude_md_config
+  install_settings_permissions
   echo "✅ 安装完成"
   echo "   项目目录 : $INSTALL_PREFIX"
   echo "   可执行目录: $BIN_DIR"
   echo "   Claude 命令已更新"
+  echo "   全局 CLAUDE.md 已配置 Codex 协作规则"
+  echo "   全局 settings.json 已添加权限"
 }
 
 uninstall_all() {
