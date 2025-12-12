@@ -78,20 +78,22 @@ def _send_via_tmux(session: str, payload: str) -> None:
         raise RuntimeError("❌ 传入的指令为空")
 
     buffer_name = f"cast-{os.getpid()}-{int(time.time() * 1000)}"
-    encoded = sanitized.encode("utf-8")
+    payload_with_newline = sanitized + "\n"
+    encoded = payload_with_newline.encode("utf-8")
 
-    def run_tmux(args, **kwargs):
-        cmd = ["tmux"] + args
-        subprocess.run(cmd, check=True, **kwargs)
-
-    run_tmux(["load-buffer", "-b", buffer_name, "-"], input=encoded)
-    run_tmux(["paste-buffer", "-t", session, "-b", buffer_name])
-    run_tmux(["delete-buffer", "-b", buffer_name])
-
-    # Give tmux a brief moment to paste before sending Enter
-    time.sleep(0.05)
-    # Paste does not trigger execution; always send Enter to run the command
-    run_tmux(["send-keys", "-t", session, "C-m"])
+    subprocess.run(
+        ["tmux", "load-buffer", "-b", buffer_name, "-"],
+        input=encoded,
+        check=True,
+    )
+    subprocess.run(
+        ["tmux", "paste-buffer", "-t", session, "-b", buffer_name],
+        check=True,
+    )
+    subprocess.run(
+        ["tmux", "delete-buffer", "-b", buffer_name],
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def main(argv: list[str]) -> int:
