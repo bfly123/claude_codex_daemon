@@ -72,8 +72,7 @@ def _ensure_tmux_session(session: str) -> None:
 
 
 def _send_via_tmux(session: str, payload: str) -> None:
-    sanitized = payload.replace("\r", " ")
-    sanitized = sanitized.replace("\n", " ").strip()
+    sanitized = payload.replace("\r", "").strip()
     if not sanitized:
         raise RuntimeError("❌ 传入的指令为空")
 
@@ -87,7 +86,11 @@ def _send_via_tmux(session: str, payload: str) -> None:
         check=True,
     )
     subprocess.run(
-        ["tmux", "paste-buffer", "-t", session, "-b", buffer_name],
+        ["tmux", "paste-buffer", "-t", session, "-b", buffer_name, "-p"],
+        check=True,
+    )
+    subprocess.run(
+        ["tmux", "send-keys", "-t", session, "Enter"],
         check=True,
     )
     subprocess.run(
