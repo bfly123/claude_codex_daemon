@@ -22,6 +22,18 @@ claude_codex -C           # 恢复 Codex 上下文（当前目录）/ resume Cod
 claude_codex -C -c        # 同时恢复 / resume both
 ```
 
+## 使用方式 / How to Use
+- CN：安装并启动后，直接用自然语言就能触发 Codex，无需记命令。例：  
+  - “请让 Codex 帮我写一首诗”  
+  - “让 Codex 协助分析这段日志”  
+  - “问下 Codex 还有什么优化建议”
+- EN: After install/start, just say it in plain language; commands are optional. Examples:  
+  - “Ask Codex to write a poem”  
+  - “Have Codex help analyze this log”  
+  - “Check with Codex for optimization ideas”
+- 如需精确控制或显式调用，可使用下方命令。  
+  If you prefer explicit control, you can still use the commands below.
+
 ## 核心命令 / Core Commands
 - `/cask-w <question>`：同步等待 Codex 回复（默认推荐）  
   `/cask-w <question>`: synchronous; waits for Codex to reply.
