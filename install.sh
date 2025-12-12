@@ -279,8 +279,17 @@ install_claude_md_config() {
   mkdir -p "$HOME/.claude"
 
   if [[ -f "$claude_md" ]] && grep -q "$CODEX_RULE_MARKER" "$claude_md" 2>/dev/null; then
-    echo "Codex 协作规则已存在于 $claude_md"
-    return
+    echo "检测到旧的 Codex 协作规则，正在更新..."
+    python3 -c "
+import re
+with open('$claude_md', 'r', encoding='utf-8') as f:
+    content = f.read()
+pattern = r'## Codex 协作规则.*?(?=\n## |\Z)'
+content = re.sub(pattern, '', content, flags=re.DOTALL)
+content = content.rstrip() + '\n'
+with open('$claude_md', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
   fi
 
   cat >> "$claude_md" << 'CODEX_RULES'
@@ -294,21 +303,21 @@ Codex 是通过 tmux 运行的另一个 AI 助手。当用户的意图涉及「�
 - 用户询问 codex 的状态或之前的回复
 
 命令选择：
-- 默认询问/协作 → `cask "<问题或指令>"`（异步，不等待）
-- 用户明确要求等待回复 → `cask-w "<问题或指令>"`（阻塞等待）
+- 默认询问/协作 → `cask-w "<问题或指令>"`（同步等待回复，无限等待）
+- 仅发送不等待 → `cask "<问题或指令>"`（异步，立即返回）
 - 只想查状态/连通性 → `cping`
 - 只想看之前的回复 → `cpend`
 
 示例：
-- "codex 对此有什么建议" → cask（默认异步）
-- "让 codex 帮忙看看" → cask
-- "问一下 codex 这个问题" → cask
+- "codex 对此有什么建议" → cask-w（默认同步）
+- "让 codex 帮忙看看" → cask-w
+- "问一下 codex 这个问题" → cask-w
 - "codex 那边怎么说" → cpend
 - "codex 还活着吗" → cping
-- "等 codex 回复" / "等待回复" → cask-w
+- "不用等回复" / "异步发送" → cask
 CODEX_RULES
 
-  echo "已添加 Codex 协作规则到 $claude_md"
+  echo "已更新 Codex 协作规则到 $claude_md"
 }
 
 install_settings_permissions() {

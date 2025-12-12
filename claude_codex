@@ -135,6 +135,12 @@ class ClaudeCodexDual:
             return default_cmd
 
         data = self.previous_session or {}
+
+        prev_work_dir = data.get("work_dir")
+        if prev_work_dir and prev_work_dir != str(Path.cwd()):
+            print(f"⚠️ 历史 session 来自不同目录 ({prev_work_dir})，将使用默认命令")
+            return default_cmd
+
         stored_cmd = data.get("codex_start_cmd")
         if isinstance(stored_cmd, str) and stored_cmd.strip():
             print(f"🔁 使用历史 Codex 启动命令: {stored_cmd}")
@@ -187,12 +193,10 @@ class ClaudeCodexDual:
         if inferred_session and inferred_session != existing_session:
             record["codex_session_id"] = inferred_session
 
-        if isinstance(self.codex_start_cmd, str) and self.codex_start_cmd.startswith("codex resume "):
-            codex_cmd_to_store = self.codex_start_cmd
-        elif inferred_session:
+        if self.resume_codex and inferred_session:
             codex_cmd_to_store = f"codex resume {inferred_session}"
         else:
-            codex_cmd_to_store = self.codex_start_cmd
+            codex_cmd_to_store = "codex"
 
         record.update(
             {
@@ -209,6 +213,7 @@ class ClaudeCodexDual:
                 "client_id": self.client_id,
                 "codex_start_cmd": codex_cmd_to_store,
                 "claude_args": self._clean_claude_args(self.claude_args),
+                "work_dir": str(Path.cwd()),
                 "flags": {
                     "resume": self.resume,
                     "resume_claude": self.resume_claude,
@@ -244,7 +249,14 @@ class ClaudeCodexDual:
             print(f"⚠️ {prefix}会话信息失败: {exc}")
 
     def _infer_codex_log(self):
-        """尝试根据最新 Codex 日志推断恢复所需的信息"""
+        """尝试根据最新 Codex 日志推断恢复所需的信息（仅限当前工作目录）"""
+        current_work_dir = str(Path.cwd())
+        prev_session_id = self.previous_session.get("codex_session_id")
+        prev_work_dir = self.previous_session.get("work_dir")
+
+        if prev_session_id and prev_work_dir == current_work_dir:
+            return self.previous_session.get("codex_session_path"), prev_session_id
+
         sessions_root = Path.home() / ".codex" / "sessions"
         if not sessions_root.exists():
             return None, None
@@ -269,8 +281,6 @@ class ClaudeCodexDual:
             if session_id:
                 return str(candidate), session_id
 
-        if logs and cutoff is None:
-            return str(logs[-1]), None
         return None, None
 
     def _extract_session_id(self, path: Path):
