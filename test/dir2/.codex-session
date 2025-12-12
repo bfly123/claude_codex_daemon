@@ -1,26 +1,23 @@
 {
-  "codex_session_path": "/home/bfly/.codex/sessions/2025/12/12/rollout-2025-12-12T16-10-01-019b119c-1a17-70d1-8f6d-d73d354182e3.jsonl",
-  "codex_session_id": "019b119c-1a17-70d1-8f6d-d73d354182e3",
-  "session_id": "dual-1765526999-747284",
-  "runtime_dir": "/tmp/codex-bfly/dual-1765526999-747284",
-  "input_fifo": "/tmp/codex-bfly/dual-1765526999-747284/input.fifo",
-  "output_fifo": "/tmp/codex-bfly/dual-1765526999-747284/output.fifo",
-  "tmux_session": "codex-dual-176",
-  "tmux_log": "/tmp/codex-bfly/dual-1765526999-747284/bridge_output.log",
-  "daemon_socket": "/tmp/codex-bfly/dual-1765526999-747284/codex-daemon.sock",
-  "daemon_pid_file": "/tmp/codex-bfly/dual-1765526999-747284/codex-daemon.pid",
-  "bridge_pid_file": "/tmp/codex-bfly/dual-1765526999-747284/bridge.pid",
-  "bridge_log": "/tmp/codex-bfly/dual-1765526999-747284/bridge.log",
-  "client_id": "codex-dual-87f34385",
-  "codex_start_cmd": "codex resume 019b119c-1a17-70d1-8f6d-d73d354182e3",
+  "session_id": "dual-1765546474-305599",
+  "runtime_dir": "/tmp/codex-bfly/dual-1765546474-305599",
+  "input_fifo": "/tmp/codex-bfly/dual-1765546474-305599/input.fifo",
+  "output_fifo": "/tmp/codex-bfly/dual-1765546474-305599/output.fifo",
+  "tmux_session": "codex-46474-305599",
+  "tmux_log": "/tmp/codex-bfly/dual-1765546474-305599/bridge_output.log",
+  "daemon_socket": "/tmp/codex-bfly/dual-1765546474-305599/codex-daemon.sock",
+  "daemon_pid_file": "/tmp/codex-bfly/dual-1765546474-305599/codex-daemon.pid",
+  "bridge_pid_file": "/tmp/codex-bfly/dual-1765546474-305599/bridge.pid",
+  "bridge_log": "/tmp/codex-bfly/dual-1765546474-305599/bridge.log",
+  "client_id": "codex-dual-cb47cb40",
+  "codex_start_cmd": "codex",
   "claude_args": [],
   "work_dir": "/home/bfly/运维/claude_codex/test/dir2",
   "flags": {
     "resume": false,
-    "resume_claude": true,
-    "resume_codex": true
+    "resume_claude": false,
+    "resume_codex": false
   },
-  "active": false,
-  "started_at": "2025-12-12 16:10:01",
-  "ended_at": "2025-12-12 16:10:45"
+  "active": true,
+  "started_at": "2025-12-12 21:34:36"
 }

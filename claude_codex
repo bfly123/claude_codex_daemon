@@ -73,7 +73,7 @@ class ClaudeCodexDual:
         self.lock_file = self.runtime_dir / "lock"
         self.project_session_file = Path.cwd() / ".codex-session"
         self.bridge_pid_file = self.runtime_dir / "bridge.pid"
-        self.tmux_session = f"codex-{self.session_id[:8]}"
+        self.tmux_session = f"codex-{int(time.time()) % 100000}-{os.getpid()}"
         self.tmux_log_file = self.runtime_dir / "bridge_output.log"
         self._cleaned = False
 
@@ -492,14 +492,13 @@ exec tmux attach -t "$TMUX_SESSION"
             if self.terminal_type == "tmux":
                 # 使用tmux创建新会话
                 cmd = [
-                    "tmux", "new-session", "-d", "-s", f"codex-{self.session_id[:8]}",
+                    "tmux", "new-session", "-d", "-s", self.tmux_session,
                     str(script_file)
                 ]
                 subprocess.run(cmd, check=True)
 
-                # 附加到tmux会话
                 subprocess.run([
-                    "tmux", "attach-session", "-t", f"codex-{self.session_id[:8]}"
+                    "tmux", "attach-session", "-t", self.tmux_session
                 ])
 
             elif self.terminal_type == "Terminal.app" and platform.system() == "Darwin":
@@ -642,7 +641,7 @@ exec tmux attach -t "$TMUX_SESSION"
             # 如果是tmux会话，杀掉tmux
             if self.terminal_type == "tmux":
                 subprocess.run([
-                    "tmux", "kill-session", "-t", f"codex-{self.session_id[:8]}"
+                    "tmux", "kill-session", "-t", self.tmux_session
                 ], stderr=subprocess.DEVNULL)
             elif self.terminal_type:
                 subprocess.run([
