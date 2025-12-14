@@ -45,10 +45,12 @@ class ClaudeCodexDual:
         claude_args=None,
         resume_claude: bool = False,
         resume_codex: bool = False,
+        permission: bool = False,
     ):
         self.resume = resume
         self.resume_claude = resume_claude or resume
         self.resume_codex = resume_codex or resume
+        self.permission = permission
         self.claude_args = self._clean_claude_args(claude_args or [])
         self.script_dir = Path(__file__).resolve().parent
 
@@ -130,30 +132,36 @@ class ClaudeCodexDual:
         return {}
 
     def _prepare_codex_start_command(self) -> str:
-        default_cmd = "codex"
+        base_cmd = "codex --full-auto" if self.permission else "codex"
         if not self.resume_codex:
-            return default_cmd
+            return base_cmd
 
         data = self.previous_session or {}
 
         prev_work_dir = data.get("work_dir")
         if prev_work_dir and prev_work_dir != str(Path.cwd()):
             print(f"⚠️ 历史 session 来自不同目录 ({prev_work_dir})，将使用默认命令")
-            return default_cmd
+            return base_cmd
 
         stored_cmd = data.get("codex_start_cmd")
         if isinstance(stored_cmd, str) and stored_cmd.strip():
-            print(f"🔁 使用历史 Codex 启动命令: {stored_cmd}")
-            return stored_cmd
+            cmd = stored_cmd
+            if self.permission and "--full-auto" not in cmd:
+                cmd = cmd.replace("codex", "codex --full-auto", 1)
+            print(f"🔁 使用历史 Codex 启动命令: {cmd}")
+            return cmd
 
         session_id = data.get("codex_session_id")
         if isinstance(session_id, str) and session_id.strip():
-            resume_cmd = f"codex resume {session_id.strip()}"
+            if self.permission:
+                resume_cmd = f"codex --full-auto resume {session_id.strip()}"
+            else:
+                resume_cmd = f"codex resume {session_id.strip()}"
             print(f"🔁 根据会话ID恢复 Codex: {resume_cmd}")
             return resume_cmd
 
         print("⚠️ 未找到可恢复的 Codex 信息，将使用默认命令")
-        return default_cmd
+        return base_cmd
 
     def _apply_claude_resume_preferences(self):
         if not self.resume_claude or self.claude_args:
@@ -173,6 +181,8 @@ class ClaudeCodexDual:
     def _build_claude_command(self):
         """构建 Claude CLI 启动命令"""
         command = ["claude"]
+        if self.permission:
+            command.append("--dangerously-skip-permissions")
         if self.resume_claude:
             command.append("-c")
         command.extend(self.claude_args)
@@ -708,6 +718,7 @@ claude_codex - Claude-Codex 双窗口模式启动器
     -c                    恢复Claude上下文
     -C                    恢复Codex上下文
     --resume              同时恢复Claude和Codex上下文
+    --all-permissions, -a 激活最高权限模式 (Claude: --dangerously-skip-permissions, Codex: --full-auto)
     --help, -h            显示帮助信息
 
 Claude命令 (在Claude窗口中使用):
@@ -720,6 +731,8 @@ Claude命令 (在Claude窗口中使用):
     claude_codex                  # 启动双窗口模式
     claude_codex -c               # 恢复Claude上下文
     claude_codex -C               # 恢复Codex上下文
+    claude_codex -a               # 最高权限模式启动
+    claude_codex -a -c            # 最高权限 + 恢复Claude
     claude_codex /path/to/project # 在项目目录启动
 """
     print(help_text)
@@ -807,6 +820,7 @@ def main():
     parser.add_argument('--resume', action='store_true', help='恢复上次的会话')
     parser.add_argument('-c', dest='resume_claude', action='store_true', help='恢复Claude上下文')
     parser.add_argument('-C', dest='resume_codex', action='store_true', help='恢复Codex上下文')
+    parser.add_argument('--all-permissions', '-a', dest='permission', action='store_true', help='激活最高权限模式')
     parser.add_argument('--help', '-h', action='store_true', help='显示帮助')
 
     # 解析已知参数，其余传给claude
@@ -827,6 +841,7 @@ def main():
         claude_args=remaining_args,
         resume_claude=args.resume_claude,
         resume_codex=args.resume_codex,
+        permission=args.permission,
     )
     return dual.run()
 

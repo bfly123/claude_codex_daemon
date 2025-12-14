@@ -20,7 +20,10 @@ claude_codex              # 基础启动 / default start
 claude_codex -c           # 恢复 Claude 上下文（当前目录）/ resume Claude context for cwd
 claude_codex -C           # 恢复 Codex 上下文（当前目录）/ resume Codex context for cwd
 claude_codex -C -c        # 同时恢复 / resume both
+claude_codex -a           # 最高权限模式 / full permissions mode
 ```
+
+`-a` / `--all-permissions` 激活最高权限：Claude 使用 `--dangerously-skip-permissions`，Codex 使用 `--full-auto`。
 
 ## 使用方式 / How to Use
 - CN：安装并启动后，直接用自然语言就能触发 Codex，无需记命令。例：  
