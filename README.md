@@ -1,96 +1,137 @@
 # Claude-Codex
 
-Claude 与 Codex 双窗口协作工具 | Dual-pane helper that bridges Claude and Codex over tmux with session isolation. Works on Linux/macOS; Windows is supported via WSL2. 欢迎测试和反馈（v: 710210567）。
+Dual-pane collaboration tool that bridges Claude and Codex (or other AI IDEs) over tmux with persistent session isolation. Works on Linux/macOS; Windows supported via WSL2.
 
-![Claude 与 Codex 双窗口示意图](figure.png)
+![Dual-pane diagram](figure.png)
 
-## 简介 / Overview
-- CN：通过 Claude 给 Codex 发送指令，并从 Codex 回读结果，保持各自会话隔离。
-- EN：Send instructions from Claude to Codex and read responses back, keeping sessions isolated.
-- English prompts are supported end-to-end; commands simply forward text and do not depend on language.
+## Why This Project?
 
-## 安装 / Install
+With traditional MCP calls, Claude must feed large chunks of context to Codex on every request. Codex acts as a stateless executor with no memory.
+
+**claude_codex is different**: It establishes a persistent communication channel between Claude and a full Codex instance. Each maintains its own context independently—only brief instructions need to be exchanged.
+
+| Aspect | MCP Ephemeral Calls | Persistent Dual-Pane |
+|--------|---------------------|----------------------|
+| Codex State | Stateless, no memory | Persistent session |
+| Context Source | Passed from Claude | Self-maintained |
+| Token Cost | High (5k-20k/call) | Low (50-200/call) |
+| Work Mode | Master-slave | Parallel collaboration |
+| Capabilities | Limited by MCP API | Full CLI access |
+| Session Recovery | Not possible | Supported (`-C` flag) |
+
+### Key Benefits
+
+**1. Context Independence**
+- MCP: Codex only sees what Claude feeds it
+- Dual-pane: Codex has its own eyes—reads project files, remembers conversation history
+
+**2. Token Savings (70-90% reduction)**
+```
+MCP approach:
+  Claude → [full code + history + instructions] → Codex
+  Cost: 5,000-20,000 tokens/call
+
+Dual-pane approach:
+  Claude → "optimize the performance of utils.py" → Codex
+  Cost: 50-200 tokens/call
+  Codex reads utils.py on its own
+```
+
+**3. True Parallel Collaboration**
+- Claude and Codex work independently
+- Async mode allows Claude to continue without blocking
+- Ideal for complex task distribution
+
+**4. Full Codex Capabilities**
+- File read/write, command execution, git operations
+- Not limited by MCP interface constraints
+- `--full-auto` mode for complete autonomy
+
+## Install
+
 ```bash
 ./install.sh install
 ```
 
-## 启动 / Start
+## Start
+
 ```bash
-claude_codex              # 基础启动 / default start
-claude_codex -c           # 恢复 Claude 上下文（当前目录）/ resume Claude context for cwd
-claude_codex -C           # 恢复 Codex 上下文（当前目录）/ resume Codex context for cwd
-claude_codex -C -c        # 同时恢复 / resume both
-claude_codex -a           # 最高权限模式 / full permissions mode
+claude_codex              # default start
+claude_codex -c           # resume Claude context
+claude_codex -C           # resume Codex context
+claude_codex -C -c        # resume both
+claude_codex -a           # full permissions mode
 ```
 
-`-a` / `--all-permissions` 激活最高权限：Claude 使用 `--dangerously-skip-permissions`，Codex 使用 `--full-auto`。
+`-a` / `--all-permissions` enables maximum permissions: Claude uses `--dangerously-skip-permissions`, Codex uses `--full-auto`.
 
-## 使用方式 / How to Use
-- CN：安装并启动后，直接用自然语言就能触发 Codex，无需记命令。例：  
-  - “请让 Codex 帮我写一首诗”  
-  - “让 Codex 协助分析这段日志”  
-  - “问下 Codex 还有什么优化建议”
-- EN: After install/start, just say it in plain language; commands are optional. Examples:  
-  - “Ask Codex to write a poem”  
-  - “Have Codex help analyze this log”  
-  - “Check with Codex for optimization ideas”
-- 如需精确控制或显式调用，可使用下方命令。  
-  If you prefer explicit control, you can still use the commands below.
+## Usage
 
-## 核心命令 / Core Commands
-- `/cask-w <question>`：同步等待 Codex 回复（默认推荐）  
-  `/cask-w <question>`: synchronous; waits for Codex to reply.
-- `/cask <question>`：异步发送，不等待  
-  `/cask <question>`: async fire-and-forget.
-- `/cpend`：查看最新回复  
-  `/cpend`: show latest reply.
-- `/cping`：测试连通性  
-  `/cping`: connectivity check.
+After install, just use natural language to trigger Codex collaboration:
+- "Ask Codex to write a poem"
+- "Have Codex help analyze this log"
+- "Check with Codex for optimization ideas"
 
-## 自动化特性 / Automation
-- CN：安装后，Claude 会在检测到 Codex 协作意图时自动调用命令。默认同步使用 `cask-w`，如明确要求异步则用 `cask`，查状态用 `cping`，查回复用 `cpend`。
-- EN：After installing the helper rules, Claude will auto-call commands when collaboration intent is detected. Default is synchronous `cask-w`; if you explicitly say “send without waiting”, it uses `cask`. Use `cping` for health, `cpend` to read the latest reply.
+For explicit control, use the commands below.
 
-## 项目结构 / Project Structure
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `cask-w <question>` | Synchronous; waits for Codex reply (recommended) |
+| `cask <question>` | Async fire-and-forget |
+| `cpend` | Show latest reply |
+| `cping` | Connectivity check |
+
+## Automation
+
+After installing, Claude automatically detects collaboration intent and calls the appropriate command. Default is synchronous `cask-w`; use `cask` for async, `cping` for health checks, `cpend` to read replies.
+
+## Project Structure
+
 ```
 claude_codex/
-├── cask                  # 异步命令转发 / async forwarder
-├── cask-w                # 同步命令转发 / sync forwarder
-├── cpend                 # 查看回复 / show reply
-├── cping                 # 连通性测试 / connectivity check
-├── claude_codex          # 主启动器 / launcher
-├── codex_comm.py         # 通信模块 / comm layer
-├── codex_dual_bridge.py  # tmux 桥接器 / tmux bridge
-├── commands/             # 命令文档 / command docs
-└── install.sh            # 安装脚本 / installer
+├── cask                  # async forwarder
+├── cask-w                # sync forwarder
+├── cpend                 # show reply
+├── cping                 # connectivity check
+├── claude_codex          # main launcher
+├── codex_comm.py         # communication layer
+├── codex_dual_bridge.py  # tmux bridge
+├── commands/             # command docs
+└── install.sh            # installer
 ```
 
-## 核心功能 / Highlights
-- 双窗口 Claude-Codex 协作 / dual-pane collaboration.
-- 会话隔离（session_id 过滤）/ session isolation via session_id.
-- tmux 命令转发 / tmux forwarding.
-- 支持异步/同步通信 / async & sync modes.
-- 自动清理临时文件 / auto temp cleanup.
+## Highlights
 
-## 卸载 / Uninstall
+- Dual-pane Claude-Codex collaboration
+- Session isolation via session_id filtering
+- tmux-based command forwarding
+- Async and sync communication modes
+- Automatic temp file cleanup
+
+## Uninstall
+
 ```bash
 ./install.sh uninstall
 ```
 
-## 依赖 / Requirements
+## Requirements
+
 - Python 3.8+
 - tmux
 
-macOS: `brew install tmux`  
-Linux: e.g. `sudo apt-get install tmux`, `sudo dnf install tmux`, or `sudo pacman -S tmux` before running the installer.
+macOS: `brew install tmux`
+Linux: `sudo apt-get install tmux` / `sudo dnf install tmux` / `sudo pacman -S tmux`
 
-## WSL 支持 / WSL Support
-- WSL2: fully supported  
+## WSL Support
+
+- WSL2: fully supported
 - WSL1: not supported (FIFO limitation)
 
-升级到 WSL2 / upgrade to WSL2:
+Upgrade to WSL2:
 ```powershell
 wsl --set-version <distro> 2
 ```
-建议在 WSL 内部文件系统（如 `~/projects`）中运行，避免 `/mnt/c` 下的性能损失。  
+
 For best performance, work inside the WSL filesystem (e.g., `~/projects`) instead of `/mnt/c`.
