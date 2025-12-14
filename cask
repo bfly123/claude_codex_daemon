@@ -89,6 +89,7 @@ def _send_via_tmux(session: str, payload: str) -> None:
         ["tmux", "paste-buffer", "-t", session, "-b", buffer_name, "-p"],
         check=True,
     )
+    time.sleep(0.05)
     subprocess.run(
         ["tmux", "send-keys", "-t", session, "Enter"],
         check=True,
