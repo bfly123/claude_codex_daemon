@@ -95,7 +95,9 @@ claude_codex -a           # full permissions mode
 - "Codex designs architecture, Claude implements modules"
 - "Parallel code review from different angles"
 
-## Commands
+## Commands (For Developers)
+
+> Most users don't need these—Claude auto-detects collaboration intent. These explicit commands are for developers who want fine-grained control or integration.
 
 | Command | Description |
 |---------|-------------|
@@ -196,7 +198,9 @@ claude_codex -a           # 最高权限模式
 - "Codex 设计架构，Claude 实现各模块"
 - "两个 AI 从不同角度并行 Code Review"
 
-## 命令
+## 命令（开发者使用）
+
+> 普通用户无需使用这些命令——Claude 会自动检测协作意图。这些显式命令供开发者精细控制或二次集成使用。
 
 | 命令 | 说明 |
 |------|------|
