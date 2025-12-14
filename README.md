@@ -32,10 +32,10 @@ Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed
 | **Codex** | Algorithm implementation, bug hunting, code review |
 | **claude_codex** | Session management, context isolation, communication bridge |
 
-### MCP vs Persistent Dual-Pane
+### Official MCP vs Persistent Dual-Pane
 
-| Aspect | MCP Ephemeral | Persistent Dual-Pane |
-|--------|---------------|----------------------|
+| Aspect | MCP (Official) | Persistent Dual-Pane |
+|--------|----------------|----------------------|
 | Codex State | Stateless | Persistent session |
 | Context | Passed from Claude | Self-maintained |
 | Token Cost | 5k-20k/call | 50-200/call |
@@ -135,10 +135,10 @@ claude_codex -a           # full permissions mode
 | **Codex** | 算法实现、bug 定位、代码审查 |
 | **claude_codex** | 会话管理、上下文隔离、通信桥接 |
 
-### MCP 临时调用 vs 持久双窗口
+### 官方 MCP vs 持久双窗口
 
-| 维度 | MCP 临时调用 | 持久双窗口 |
-|------|-------------|-----------|
+| 维度 | MCP（官方方案） | 持久双窗口 |
+|------|----------------|-----------|
 | Codex 状态 | 无记忆 | 持久会话 |
 | 上下文 | Claude 传递 | 各自维护 |
 | Token 消耗 | 5k-20k/次 | 50-200/次 |
