@@ -1,55 +1,70 @@
+<div align="center">
+
 # Claude-Codex
 
-Dual-pane collaboration tool that bridges Claude and Codex (or other AI IDEs) over tmux with persistent session isolation. Works on Linux/macOS; Windows supported via WSL2.
+**Persistent dual-pane collaboration between Claude and Codex**
 
-![Dual-pane diagram](figure.png)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL2-lightgrey.svg)]()
+
+[English](#english) | [中文](#中文)
+
+<img src="figure.png" alt="Dual-pane diagram" width="600">
+
+</div>
+
+---
+
+# English
 
 ## Why This Project?
 
-With traditional MCP calls, Claude must feed large chunks of context to Codex on every request. Codex acts as a stateless executor with no memory.
+Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed full context every time.
 
-**claude_codex is different**: It establishes a persistent communication channel between Claude and a full Codex instance. Each maintains its own context independently—only brief instructions need to be exchanged.
+**claude_codex** establishes a **persistent channel** where both AIs maintain independent contexts.
 
-| Aspect | MCP Ephemeral Calls | Persistent Dual-Pane |
-|--------|---------------------|----------------------|
-| Codex State | Stateless, no memory | Persistent session |
-| Context Source | Passed from Claude | Self-maintained |
-| Token Cost | High (5k-20k/call) | Low (50-200/call) |
-| Work Mode | Master-slave | Parallel collaboration |
-| Capabilities | Limited by MCP API | Full CLI access |
-| Session Recovery | Not possible | Supported (`-C` flag) |
+### Division of Labor
 
-### Key Benefits
+| Role | Responsibilities |
+|------|------------------|
+| **Claude Code** | Requirements analysis, architecture planning, code refactoring |
+| **Codex** | Algorithm implementation, bug hunting, code review |
+| **claude_codex** | Session management, context isolation, communication bridge |
 
-**1. Context Independence**
-- MCP: Codex only sees what Claude feeds it
-- Dual-pane: Codex has its own eyes—reads project files, remembers conversation history
+### MCP vs Persistent Dual-Pane
 
-**2. Token Savings (70-90% reduction)**
+| Aspect | MCP Ephemeral | Persistent Dual-Pane |
+|--------|---------------|----------------------|
+| Codex State | Stateless | Persistent session |
+| Context | Passed from Claude | Self-maintained |
+| Token Cost | 5k-20k/call | 50-200/call |
+| Work Mode | Master-slave | Parallel |
+| Recovery | Not possible | Supported (`-C`) |
+
+<details>
+<summary><b>Token Savings Explained</b></summary>
+
 ```
 MCP approach:
   Claude → [full code + history + instructions] → Codex
   Cost: 5,000-20,000 tokens/call
 
 Dual-pane approach:
-  Claude → "optimize the performance of utils.py" → Codex
+  Claude → "optimize utils.py" → Codex
   Cost: 50-200 tokens/call
-  Codex reads utils.py on its own
+  (Codex reads the file itself)
 ```
 
-**3. True Parallel Collaboration**
-- Claude and Codex work independently
-- Async mode allows Claude to continue without blocking
-- Ideal for complex task distribution
+**Estimated savings: 70-90%**
 
-**4. Full Codex Capabilities**
-- File read/write, command execution, git operations
-- Not limited by MCP interface constraints
-- `--full-auto` mode for complete autonomy
+</details>
 
 ## Install
 
 ```bash
+git clone https://github.com/bfly123/claude_codex.git
+cd claude_codex
 ./install.sh install
 ```
 
@@ -59,70 +74,40 @@ Dual-pane approach:
 claude_codex              # default start
 claude_codex -c           # resume Claude context
 claude_codex -C           # resume Codex context
-claude_codex -C -c        # resume both
 claude_codex -a           # full permissions mode
 ```
 
-`-a` / `--all-permissions` enables maximum permissions: Claude uses `--dangerously-skip-permissions`, Codex uses `--full-auto`.
+> `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.
 
-## Usage
+## Usage Examples
 
-After install, just use natural language to trigger Codex collaboration.
-
-### Practical Examples
-- "Have Codex review my code changes and suggest improvements"
-- "Ask Codex to plan the refactoring, then supervise while I implement"
-- "Let Codex write the backend API while I work on the frontend"
+### Practical Workflows
+- "Have Codex review my code changes"
+- "Codex plans the refactoring, supervises while I implement"
+- "Codex writes backend API, I handle frontend"
 
 ### Fun & Creative
-- "Play Gomoku (five-in-a-row) with Codex"
-- "Have Claude and Codex debate: tabs vs spaces"
-- "Let Codex quiz me on algorithms, Claude checks my answers"
-- "Codex writes a function, Claude tries to find bugs"
-- "Role-play: Codex is the senior dev, I'm the intern asking questions"
+- "Play Gomoku with Codex"
+- "Debate: tabs vs spaces"
+- "Codex writes a function, Claude finds the bugs"
 
-### Advanced Workflows
-- "Codex designs the architecture, Claude implements each module"
-- "Parallel code review: both analyze the PR from different angles"
-- "Codex monitors test results while Claude fixes failing tests"
-
-For explicit control, use the commands below.
+### Advanced
+- "Codex designs architecture, Claude implements modules"
+- "Parallel code review from different angles"
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `cask-w <question>` | Synchronous; waits for Codex reply (recommended) |
-| `cask <question>` | Async fire-and-forget |
+| `cask-w <msg>` | Sync: wait for reply |
+| `cask <msg>` | Async: fire-and-forget |
 | `cpend` | Show latest reply |
 | `cping` | Connectivity check |
 
-## Automation
+## Requirements
 
-After installing, Claude automatically detects collaboration intent and calls the appropriate command. Default is synchronous `cask-w`; use `cask` for async, `cping` for health checks, `cpend` to read replies.
-
-## Project Structure
-
-```
-claude_codex/
-├── cask                  # async forwarder
-├── cask-w                # sync forwarder
-├── cpend                 # show reply
-├── cping                 # connectivity check
-├── claude_codex          # main launcher
-├── codex_comm.py         # communication layer
-├── codex_dual_bridge.py  # tmux bridge
-├── commands/             # command docs
-└── install.sh            # installer
-```
-
-## Highlights
-
-- Dual-pane Claude-Codex collaboration
-- Session isolation via session_id filtering
-- tmux-based command forwarding
-- Async and sync communication modes
-- Automatic temp file cleanup
+- Python 3.8+
+- tmux (`brew install tmux` / `apt install tmux`)
 
 ## Uninstall
 
@@ -130,22 +115,111 @@ claude_codex/
 ./install.sh uninstall
 ```
 
-## Requirements
+---
 
-- Python 3.8+
-- tmux
+# 中文
 
-macOS: `brew install tmux`
-Linux: `sudo apt-get install tmux` / `sudo dnf install tmux` / `sudo pacman -S tmux`
+## 为什么需要这个项目？
 
-## WSL Support
+传统 MCP 调用把 Codex 当作**无状态执行器**——Claude 每次都要传递完整上下文。
 
-- WSL2: fully supported
-- WSL1: not supported (FIFO limitation)
+**claude_codex** 建立**持久通道**，两个 AI 各自维护独立上下文。
 
-Upgrade to WSL2:
-```powershell
-wsl --set-version <distro> 2
+### 分工协作
+
+| 角色 | 职责 |
+|------|------|
+| **Claude Code** | 需求分析、架构规划、代码重构 |
+| **Codex** | 算法实现、bug 定位、代码审查 |
+| **claude_codex** | 会话管理、上下文隔离、通信桥接 |
+
+### MCP 临时调用 vs 持久双窗口
+
+| 维度 | MCP 临时调用 | 持久双窗口 |
+|------|-------------|-----------|
+| Codex 状态 | 无记忆 | 持久会话 |
+| 上下文 | Claude 传递 | 各自维护 |
+| Token 消耗 | 5k-20k/次 | 50-200/次 |
+| 工作模式 | 主从 | 并行协作 |
+| 会话恢复 | 不支持 | 支持 (`-C`) |
+
+<details>
+<summary><b>Token 节省原理</b></summary>
+
+```
+MCP 方式：
+  Claude → [完整代码 + 历史 + 指令] → Codex
+  消耗：5,000-20,000 tokens/次
+
+双窗口方式：
+  Claude → "优化 utils.py" → Codex
+  消耗：50-200 tokens/次
+  (Codex 自己读取文件)
 ```
 
-For best performance, work inside the WSL filesystem (e.g., `~/projects`) instead of `/mnt/c`.
+**预估节省：70-90%**
+
+</details>
+
+## 安装
+
+```bash
+git clone https://github.com/bfly123/claude_codex.git
+cd claude_codex
+./install.sh install
+```
+
+## 启动
+
+```bash
+claude_codex              # 默认启动
+claude_codex -c           # 恢复 Claude 上下文
+claude_codex -C           # 恢复 Codex 上下文
+claude_codex -a           # 最高权限模式
+```
+
+> `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。
+
+## 使用示例
+
+### 实用场景
+- "让 Codex 审查我的代码修改"
+- "Codex 规划重构方案，我来实现它监督"
+- "Codex 写后端 API，我写前端"
+
+### 趣味玩法
+- "和 Codex 下五子棋"
+- "辩论：Tab vs 空格"
+- "Codex 写函数，Claude 找 bug"
+
+### 进阶工作流
+- "Codex 设计架构，Claude 实现各模块"
+- "两个 AI 从不同角度并行 Code Review"
+
+## 命令
+
+| 命令 | 说明 |
+|------|------|
+| `cask-w <消息>` | 同步：等待回复 |
+| `cask <消息>` | 异步：发送即返回 |
+| `cpend` | 查看最新回复 |
+| `cping` | 测试连通性 |
+
+## 依赖
+
+- Python 3.8+
+- tmux（`brew install tmux` / `apt install tmux`）
+
+## 卸载
+
+```bash
+./install.sh uninstall
+```
+
+---
+
+<div align="center">
+
+**WSL2 supported** | WSL1 not supported (FIFO limitation)
+
+</div>
