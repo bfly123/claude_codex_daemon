@@ -67,10 +67,24 @@ claude_codex -a           # full permissions mode
 
 ## Usage
 
-After install, just use natural language to trigger Codex collaboration:
-- "Ask Codex to write a poem"
-- "Have Codex help analyze this log"
-- "Check with Codex for optimization ideas"
+After install, just use natural language to trigger Codex collaboration.
+
+### Practical Examples
+- "Have Codex review my code changes and suggest improvements"
+- "Ask Codex to plan the refactoring, then supervise while I implement"
+- "Let Codex write the backend API while I work on the frontend"
+
+### Fun & Creative
+- "Play Gomoku (five-in-a-row) with Codex"
+- "Have Claude and Codex debate: tabs vs spaces"
+- "Let Codex quiz me on algorithms, Claude checks my answers"
+- "Codex writes a function, Claude tries to find bugs"
+- "Role-play: Codex is the senior dev, I'm the intern asking questions"
+
+### Advanced Workflows
+- "Codex designs the architecture, Claude implements each module"
+- "Parallel code review: both analyze the PR from different angles"
+- "Codex monitors test results while Claude fixes failing tests"
 
 For explicit control, use the commands below.
 
