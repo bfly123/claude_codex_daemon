@@ -42,6 +42,8 @@ Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed
 | Work Mode | Master-slave | Parallel |
 | Recovery | Not possible | Supported (`-C`) |
 
+> **Prefer MCP?** Check out [CodexMCP](https://github.com/GuDaStudio/codexmcp) — a more powerful MCP implementation with session context and multi-turn support.
+
 <details>
 <summary><b>Token Savings Explained</b></summary>
 
@@ -144,6 +146,8 @@ claude_codex -a           # full permissions mode
 | Token 消耗 | 5k-20k/次 | 50-200/次 |
 | 工作模式 | 主从 | 并行协作 |
 | 会话恢复 | 不支持 | 支持 (`-C`) |
+
+> **偏好 MCP？** 推荐 [CodexMCP](https://github.com/GuDaStudio/codexmcp) — 更强大的 MCP 实现，支持会话上下文和多轮对话。
 
 <details>
 <summary><b>Token 节省原理</b></summary>
