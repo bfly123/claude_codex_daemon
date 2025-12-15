@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""
+gping - 测试 Gemini 连通性
+"""
+
+import sys
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+try:
+    from gemini_comm import GeminiCommunicator
+
+    def main():
+        try:
+            comm = GeminiCommunicator()
+            healthy, message = comm.ping(display=False)
+            print(message)
+            return 0 if healthy else 1
+        except Exception as e:
+            print(f"❌ Gemini 连通性测试失败: {e}")
+            return 1
+
+    if __name__ == "__main__":
+        sys.exit(main())
+
+except ImportError as e:
+    print(f"❌ 导入模块失败: {e}")
+    sys.exit(1)

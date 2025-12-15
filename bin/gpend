@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""
+gpend - 查看 Gemini 最新回复
+"""
+
+import sys
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+try:
+    from gemini_comm import GeminiCommunicator
+except ImportError as exc:
+    print(f"导入失败: {exc}")
+    sys.exit(1)
+
+
+def main() -> int:
+    try:
+        comm = GeminiCommunicator()
+        output = comm.consume_pending(display=False)
+        if output:
+            print(output)
+        else:
+            print('暂无 Gemini 回复')
+        return 0
+    except Exception as exc:
+        print(f"❌ 执行失败: {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

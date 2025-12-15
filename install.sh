@@ -11,6 +11,10 @@ SCRIPTS_TO_LINK=(
   bin/cask-w
   bin/cpend
   bin/cping
+  bin/gask
+  bin/gask-w
+  bin/gpend
+  bin/gping
   claude_bridge
 )
 
@@ -19,6 +23,10 @@ CLAUDE_MARKDOWN=(
   cask-w.md
   cpend.md
   cping.md
+  gask.md
+  gask-w.md
+  gpend.md
+  gping.md
 )
 
 LEGACY_SCRIPTS=(

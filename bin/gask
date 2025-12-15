@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""
+gask - 异步发送消息到 Gemini
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+from gemini_comm import GeminiCommunicator
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) <= 1:
+        print("用法: gask <消息>", file=sys.stderr)
+        return 1
+
+    message = " ".join(argv[1:]).strip()
+    if not message:
+        print("❌ 消息内容不能为空", file=sys.stderr)
+        return 1
+
+    try:
+        comm = GeminiCommunicator()
+        comm.ask_async(message)
+        return 0
+    except Exception as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
