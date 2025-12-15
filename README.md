@@ -1,6 +1,6 @@
 <div align="center">
 
-# Claude-Codex v1.0
+# Claude-Bridge v1.0
 
 **Persistent multi-AI collaboration: Claude + Codex + Gemini**
 
@@ -23,7 +23,7 @@
 
 Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed full context every time.
 
-**claude_codex** establishes a **persistent channel** where both AIs maintain independent contexts.
+**claude_bridge** establishes a **persistent channel** where both AIs maintain independent contexts.
 
 ### Division of Labor
 
@@ -32,7 +32,7 @@ Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed
 | **Claude Code** | Requirements analysis, architecture planning, code refactoring |
 | **Codex** | Algorithm implementation, bug hunting, code review |
 | **Gemini** | Research, alternative perspectives, verification |
-| **claude_codex** | Session management, context isolation, communication bridge |
+| **claude_bridge** | Session management, context isolation, communication bridge |
 
 ### Official MCP vs Persistent Dual-Pane
 
@@ -68,38 +68,27 @@ Dual-pane approach:
 ## Install
 
 ```bash
-git clone https://github.com/bfly123/claude_codex.git
-cd claude_codex
+git clone https://github.com/bfly123/claude_bridge.git
+cd claude_bridge
 ./install.sh install
 ```
 
 ## Start
 
-### New Unified Launcher (v1.0)
-
 ```bash
-claude_ai up codex            # Start with Codex
-claude_ai up gemini           # Start with Gemini
-claude_ai up codex gemini     # Start both
-claude_ai up codex -r         # Resume previous session
-claude_ai up codex -a         # Full permissions mode
+claude_bridge up codex            # Start with Codex
+claude_bridge up gemini           # Start with Gemini
+claude_bridge up codex gemini     # Start both
+claude_bridge up codex -r         # Resume previous session
+claude_bridge up codex -a         # Full permissions mode
 ```
 
 ### Session Management
 
 ```bash
-claude_ai status              # Check backend status
-claude_ai kill codex          # Terminate session
-claude_ai restore codex       # Attach to running session
-```
-
-### Legacy Command (Still Supported)
-
-```bash
-claude_codex              # default start
-claude_codex -c           # resume Claude context
-claude_codex -C           # resume Codex context
-claude_codex -a           # full permissions mode
+claude_bridge status              # Check backend status
+claude_bridge kill codex          # Terminate session
+claude_bridge restore codex       # Attach to running session
 ```
 
 > `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.
@@ -163,7 +152,7 @@ claude_codex -a           # full permissions mode
 
 传统 MCP 调用把 Codex 当作**无状态执行器**——Claude 每次都要传递完整上下文。
 
-**claude_codex** 建立**持久通道**，两个 AI 各自维护独立上下文。
+**claude_bridge** 建立**持久通道**，两个 AI 各自维护独立上下文。
 
 ### 分工协作
 
@@ -172,7 +161,7 @@ claude_codex -a           # full permissions mode
 | **Claude Code** | 需求分析、架构规划、代码重构 |
 | **Codex** | 算法实现、bug 定位、代码审查 |
 | **Gemini** | 研究、多角度分析、验证 |
-| **claude_codex** | 会话管理、上下文隔离、通信桥接 |
+| **claude_bridge** | 会话管理、上下文隔离、通信桥接 |
 
 ### 官方 MCP vs 持久双窗口
 
@@ -208,38 +197,27 @@ MCP 方式：
 ## 安装
 
 ```bash
-git clone https://github.com/bfly123/claude_codex.git
-cd claude_codex
+git clone https://github.com/bfly123/claude_bridge.git
+cd claude_bridge
 ./install.sh install
 ```
 
 ## 启动
 
-### 新版统一启动器 (v1.0)
-
 ```bash
-claude_ai up codex            # 启动 Codex
-claude_ai up gemini           # 启动 Gemini
-claude_ai up codex gemini     # 同时启动
-claude_ai up codex -r         # 恢复上次会话
-claude_ai up codex -a         # 最高权限模式
+claude_bridge up codex            # 启动 Codex
+claude_bridge up gemini           # 启动 Gemini
+claude_bridge up codex gemini     # 同时启动
+claude_bridge up codex -r         # 恢复上次会话
+claude_bridge up codex -a         # 最高权限模式
 ```
 
 ### 会话管理
 
 ```bash
-claude_ai status              # 检查后端状态
-claude_ai kill codex          # 终止会话
-claude_ai restore codex       # 连接到运行中的会话
-```
-
-### 旧版命令（仍支持）
-
-```bash
-claude_codex              # 默认启动
-claude_codex -c           # 恢复 Claude 上下文
-claude_codex -C           # 恢复 Codex 上下文
-claude_codex -a           # 最高权限模式
+claude_bridge status              # 检查后端状态
+claude_bridge kill codex          # 终止会话
+claude_bridge restore codex       # 连接到运行中的会话
 ```
 
 > `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。

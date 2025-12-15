@@ -9,7 +9,7 @@ readonly REPO_ROOT INSTALL_PREFIX BIN_DIR
 SCRIPTS_TO_LINK=(
   cask
   cask-w
-  claude_codex
+  claude_bridge
   cpend
   cping
 )
@@ -28,6 +28,8 @@ LEGACY_SCRIPTS=(
   codex-pending
   codex-ping
   claude-codex-dual
+  claude_codex
+  claude_ai
 )
 
 usage() {

@@ -1,10 +1,10 @@
 {
-  "session_id": "dual-1765546468-303913",
-  "runtime_dir": "/tmp/codex-bfly/dual-1765546468-303913",
-  "input_fifo": "/tmp/codex-bfly/dual-1765546468-303913/input.fifo",
-  "output_fifo": "/tmp/codex-bfly/dual-1765546468-303913/output.fifo",
-  "tmux_session": "codex-46468-303913",
-  "tmux_log": "/tmp/codex-bfly/dual-1765546468-303913/bridge_output.log",
+  "session_id": "ai-1765794076-678255",
+  "runtime_dir": "/tmp/claude-ai-bfly/ai-1765794076-678255/codex",
+  "input_fifo": "/tmp/claude-ai-bfly/ai-1765794076-678255/codex/input.fifo",
+  "output_fifo": "/tmp/claude-ai-bfly/ai-1765794076-678255/codex/output.fifo",
+  "tmux_session": "codex-94076-678255",
+  "tmux_log": "/tmp/claude-ai-bfly/ai-1765794076-678255/codex/bridge_output.log",
   "daemon_socket": "/tmp/codex-bfly/dual-1765546468-303913/codex-daemon.sock",
   "daemon_pid_file": "/tmp/codex-bfly/dual-1765546468-303913/codex-daemon.pid",
   "bridge_pid_file": "/tmp/codex-bfly/dual-1765546468-303913/bridge.pid",
@@ -19,8 +19,8 @@
     "resume_codex": false
   },
   "active": false,
-  "started_at": "2025-12-12 21:34:30",
+  "started_at": "2025-12-15 18:21:16",
   "codex_session_path": "/home/bfly/.codex/sessions/2025/12/12/rollout-2025-12-12T21-34-36-019b12c5-43f7-75e3-8983-d038627f4518.jsonl",
   "codex_session_id": "019b12c5-43f7-75e3-8983-d038627f4518",
-  "ended_at": "2025-12-12 21:38:35"
+  "ended_at": "2025-12-15 18:21:32"
 }

@@ -1,0 +1,1 @@
+- 该文件夹是claude_codex 开发文件夹，要注意兼容性，同时修改代码注意同时修改install，安装使用install安装，完成后要git增加版本并推送
