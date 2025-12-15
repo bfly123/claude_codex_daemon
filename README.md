@@ -102,6 +102,15 @@ claude_bridge restore codex       # Attach to running session
 - "Codex writes backend API, I handle frontend"
 
 ### Fun & Creative
+
+> **🎴 Featured: AI Poker Night!**
+> ```
+> "Let Claude, Codex and Gemini play Dou Di Zhu (斗地主)!
+>  You deal the cards, everyone plays open hand!"
+>
+>  🃏 Claude (Landlord)  vs  🎯 Codex + 💎 Gemini (Farmers)
+> ```
+
 - "Play Gomoku with Codex"
 - "Debate: tabs vs spaces"
 - "Codex writes a function, Claude finds the bugs"
@@ -231,6 +240,15 @@ claude_bridge restore codex       # 连接到运行中的会话
 - "Codex 写后端 API，我写前端"
 
 ### 趣味玩法
+
+> **🎴 特色玩法：AI 棋牌之夜！**
+> ```
+> "让 Claude、Codex 和 Gemini 来一局斗地主！
+>  你来发牌，大家明牌玩！"
+>
+>  🃏 Claude (地主)  vs  🎯 Codex + 💎 Gemini (农民)
+> ```
+
 - "和 Codex 下五子棋"
 - "辩论：Tab vs 空格"
 - "Codex 写函数，Claude 找 bug"
