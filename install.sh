@@ -7,11 +7,11 @@ BIN_DIR="${CODEX_BIN_DIR:-$HOME/.local/bin}"
 readonly REPO_ROOT INSTALL_PREFIX BIN_DIR
 
 SCRIPTS_TO_LINK=(
-  cask
-  cask-w
+  bin/cask
+  bin/cask-w
+  bin/cpend
+  bin/cping
   claude_bridge
-  cpend
-  cping
 )
 
 CLAUDE_MARKDOWN=(
@@ -190,20 +190,22 @@ copy_project() {
 install_bin_links() {
   mkdir -p "$BIN_DIR"
 
-  for name in "${SCRIPTS_TO_LINK[@]}"; do
-    if [[ ! -f "$INSTALL_PREFIX/$name" ]]; then
-      echo "⚠️ 未找到脚本 $INSTALL_PREFIX/$name，跳过创建链接"
+  for path in "${SCRIPTS_TO_LINK[@]}"; do
+    local name
+    name="$(basename "$path")"
+    if [[ ! -f "$INSTALL_PREFIX/$path" ]]; then
+      echo "⚠️ 未找到脚本 $INSTALL_PREFIX/$path，跳过创建链接"
       continue
     fi
-    chmod +x "$INSTALL_PREFIX/$name"
-    ln -sf "$INSTALL_PREFIX/$name" "$BIN_DIR/$name"
+    chmod +x "$INSTALL_PREFIX/$path"
+    ln -sf "$INSTALL_PREFIX/$path" "$BIN_DIR/$name"
   done
 
   for legacy in "${LEGACY_SCRIPTS[@]}"; do
     rm -f "$BIN_DIR/$legacy"
   done
 
-  echo "已在 $BIN_DIR 创建可执行入口: ${SCRIPTS_TO_LINK[*]}"
+  echo "已在 $BIN_DIR 创建可执行入口"
 }
 
 install_claude_commands() {

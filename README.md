@@ -11,7 +11,7 @@
 
 [English](#english) | [中文](#中文)
 
-<img src="figure.png" alt="Dual-pane diagram" width="600">
+<img src="assets/figure.png" alt="Dual-pane diagram" width="600">
 
 </div>
 

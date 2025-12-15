@@ -46,7 +46,8 @@ def _prepare_payload(raw: str) -> str:
 def _capture_log_state():
     """在发送命令前捕获日志状态"""
     script_dir = Path(__file__).resolve().parent
-    sys.path.insert(0, str(script_dir))
+    lib_dir = script_dir.parent / "lib"
+    sys.path.insert(0, str(lib_dir))
 
     from codex_comm import CodexCommunicator
     comm = CodexCommunicator()
@@ -64,7 +65,8 @@ def _send(module, payload: str) -> Tuple[str, str]:
 def _wait_for_reply(initial_state: dict, timeout: int = 0) -> tuple:
     """等待并获取新的 Codex 回复，timeout=0 表示无限等待"""
     script_dir = Path(__file__).resolve().parent
-    sys.path.insert(0, str(script_dir))
+    lib_dir = script_dir.parent / "lib"
+    sys.path.insert(0, str(lib_dir))
 
     from codex_comm import CodexCommunicator
     import time

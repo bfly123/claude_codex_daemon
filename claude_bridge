@@ -90,7 +90,7 @@ class AILauncher:
                 except Exception:
                     pass
 
-        bridge_script = self.script_dir / "codex_dual_bridge.py"
+        bridge_script = self.script_dir / "lib" / "codex_dual_bridge.py"
         wrapper = f'''#!/bin/bash
 SESSION_ID="{self.session_id}"
 RUNTIME_DIR="{runtime}"

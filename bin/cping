@@ -8,9 +8,10 @@ import sys
 import os
 from pathlib import Path
 
-# 添加脚本目录到Python路径
+# 添加lib目录到Python路径
 script_dir = Path(__file__).resolve().parent
-sys.path.insert(0, str(script_dir))
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
 
 try:
     from codex_comm import CodexCommunicator
