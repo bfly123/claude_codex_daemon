@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+"""
+claude_ai - 统一 AI 启动器
+支持 Claude + Codex / Claude + Gemini / 三者同时
+"""
+
+import sys
+import os
+import json
+import time
+import subprocess
+import signal
+import atexit
+import argparse
+import uuid
+import getpass
+import platform
+from pathlib import Path
+
+
+def is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+
+
+class AILauncher:
+    def __init__(self, providers: list, resume: bool = False, auto: bool = False, no_claude: bool = False):
+        self.providers = providers or ["codex"]
+        self.resume = resume
+        self.auto = auto
+        self.no_claude = no_claude
+        self.script_dir = Path(__file__).resolve().parent
+        self.session_id = f"ai-{int(time.time())}-{os.getpid()}"
+        self.temp_base = Path("/tmp")
+        self.runtime_dir = self.temp_base / f"claude-ai-{getpass.getuser()}" / self.session_id
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._cleaned = False
+        self.tmux_sessions = {}
+        self.processes = {}
+
+    def _detect_terminal(self):
+        if is_wsl():
+            return "tmux"
+        if platform.system() == "Darwin":
+            return "tmux"
+        terminals = ["gnome-terminal", "konsole", "alacritty", "xterm"]
+        for term in terminals:
+            if subprocess.run(["which", term], capture_output=True).returncode == 0:
+                return term
+        return "tmux"
+
+    def _start_provider(self, provider: str) -> bool:
+        print(f"🚀 启动 {provider.capitalize()} 后端...")
+
+        tmux_session = f"{provider}-{int(time.time()) % 100000}-{os.getpid()}"
+        self.tmux_sessions[provider] = tmux_session
+
+        if provider == "codex":
+            return self._start_codex(tmux_session)
+        elif provider == "gemini":
+            return self._start_gemini(tmux_session)
+        else:
+            print(f"❌ 未知的 provider: {provider}")
+            return False
+
+    def _start_codex(self, tmux_session: str) -> bool:
+        runtime = self.runtime_dir / "codex"
+        runtime.mkdir(parents=True, exist_ok=True)
+
+        input_fifo = runtime / "input.fifo"
+        output_fifo = runtime / "output.fifo"
+
+        if not input_fifo.exists():
+            os.mkfifo(input_fifo, 0o600)
+        if not output_fifo.exists():
+            os.mkfifo(output_fifo, 0o644)
+
+        start_cmd = "codex --full-auto" if self.auto else "codex"
+        if self.resume:
+            session_file = Path.cwd() / ".codex-session"
+            if session_file.exists():
+                try:
+                    data = json.loads(session_file.read_text())
+                    session_id = data.get("codex_session_id")
+                    if session_id:
+                        start_cmd = f"codex {'--full-auto ' if self.auto else ''}resume {session_id}"
+                        print(f"🔁 恢复 Codex 会话: {session_id[:8]}...")
+                except Exception:
+                    pass
+
+        bridge_script = self.script_dir / "codex_dual_bridge.py"
+        wrapper = f'''#!/bin/bash
+SESSION_ID="{self.session_id}"
+RUNTIME_DIR="{runtime}"
+TMUX_SESSION="{tmux_session}"
+BRIDGE_SCRIPT="{bridge_script}"
+PYTHON_BIN="{sys.executable}"
+SCRIPT_DIR="{self.script_dir}"
+WORK_DIR="{os.getcwd()}"
+INPUT_FIFO="{input_fifo}"
+OUTPUT_FIFO="{output_fifo}"
+TMUX_LOG_FILE="{runtime}/bridge_output.log"
+
+echo $$ > "$RUNTIME_DIR/codex.pid"
+export PYTHONPATH="$SCRIPT_DIR:${{PYTHONPATH:-}}"
+export CODEX_SESSION_ID="$SESSION_ID"
+export CODEX_RUNTIME_DIR="$RUNTIME_DIR"
+export CODEX_INPUT_FIFO="$INPUT_FIFO"
+export CODEX_OUTPUT_FIFO="$OUTPUT_FIFO"
+export CODEX_TMUX_SESSION="$TMUX_SESSION"
+export CODEX_TMUX_LOG="$TMUX_LOG_FILE"
+
+CODEX_START_CMD={json.dumps(start_cmd)}
+
+if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    cd "$WORK_DIR"
+    tmux new-session -d -s "$TMUX_SESSION" "$CODEX_START_CMD"
+    sleep 1
+fi
+tmux pipe-pane -o -t "$TMUX_SESSION" "cat >> '$TMUX_LOG_FILE'"
+
+"$PYTHON_BIN" "$BRIDGE_SCRIPT" --runtime-dir "$RUNTIME_DIR" --session-id "$SESSION_ID" >>"$RUNTIME_DIR/bridge.log" 2>&1 &
+BRIDGE_PID=$!
+echo $BRIDGE_PID > "$RUNTIME_DIR/bridge.pid"
+
+trap 'kill -TERM "$BRIDGE_PID" 2>/dev/null' EXIT
+exec tmux attach -t "$TMUX_SESSION"
+'''
+        script_file = runtime / "wrapper.sh"
+        script_file.write_text(wrapper)
+        os.chmod(script_file, 0o755)
+
+        self._write_codex_session(runtime, tmux_session, input_fifo, output_fifo)
+
+        terminal = self._detect_terminal()
+        if terminal == "tmux":
+            subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
+        else:
+            subprocess.Popen([terminal, "-e", str(script_file)])
+
+        print(f"✅ Codex 已启动 (tmux: {tmux_session})")
+        return True
+
+    def _start_gemini(self, tmux_session: str) -> bool:
+        runtime = self.runtime_dir / "gemini"
+        runtime.mkdir(parents=True, exist_ok=True)
+
+        start_cmd = "gemini"
+        if self.resume:
+            start_cmd = "gemini -r latest"
+        if self.auto:
+            start_cmd = start_cmd.replace("gemini", "gemini --yolo", 1)
+
+        wrapper = f'''#!/bin/bash
+RUNTIME_DIR="{runtime}"
+TMUX_SESSION="{tmux_session}"
+WORK_DIR="{os.getcwd()}"
+
+echo $$ > "$RUNTIME_DIR/gemini.pid"
+export GEMINI_RUNTIME_DIR="$RUNTIME_DIR"
+export GEMINI_TMUX_SESSION="$TMUX_SESSION"
+
+GEMINI_START_CMD={json.dumps(start_cmd)}
+
+cd "$WORK_DIR"
+if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    tmux new-session -d -s "$TMUX_SESSION" "$GEMINI_START_CMD"
+    sleep 1
+fi
+
+exec tmux attach -t "$TMUX_SESSION"
+'''
+        script_file = runtime / "wrapper.sh"
+        script_file.write_text(wrapper)
+        os.chmod(script_file, 0o755)
+
+        self._write_gemini_session(runtime, tmux_session)
+
+        # 创建启动脚本
+        wrapper = f'''#!/bin/bash
+cd "{os.getcwd()}"
+tmux new-session -d -s "{tmux_session}" 2>/dev/null || true
+tmux send-keys -t "{tmux_session}" "{start_cmd}" Enter
+exec tmux attach -t "{tmux_session}"
+'''
+        script_file.write_text(wrapper)
+
+        terminal = self._detect_terminal()
+        if terminal == "tmux":
+            # 纯 tmux 模式
+            subprocess.run(["tmux", "new-session", "-d", "-s", tmux_session], check=True, cwd=os.getcwd())
+            time.sleep(0.3)
+            subprocess.run(["tmux", "send-keys", "-t", tmux_session, start_cmd, "Enter"], check=True)
+        else:
+            # 打开新终端窗口
+            subprocess.Popen([terminal, "--", str(script_file)])
+
+        print(f"✅ Gemini 已启动 (tmux: {tmux_session})")
+        return True
+
+    def _write_codex_session(self, runtime, tmux_session, input_fifo, output_fifo):
+        session_file = Path.cwd() / ".codex-session"
+        data = {}
+        if session_file.exists():
+            try:
+                data = json.loads(session_file.read_text())
+            except Exception:
+                pass
+
+        data.update({
+            "session_id": self.session_id,
+            "runtime_dir": str(runtime),
+            "input_fifo": str(input_fifo),
+            "output_fifo": str(output_fifo),
+            "tmux_session": tmux_session,
+            "tmux_log": str(runtime / "bridge_output.log"),
+            "work_dir": str(Path.cwd()),
+            "active": True,
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _write_gemini_session(self, runtime, tmux_session):
+        session_file = Path.cwd() / ".gemini-session"
+        data = {
+            "session_id": self.session_id,
+            "runtime_dir": str(runtime),
+            "tmux_session": tmux_session,
+            "work_dir": str(Path.cwd()),
+            "active": True,
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _start_claude(self) -> int:
+        print("🚀 启动 Claude...")
+
+        env = os.environ.copy()
+        if "codex" in self.providers:
+            runtime = self.runtime_dir / "codex"
+            env["CODEX_SESSION_ID"] = self.session_id
+            env["CODEX_RUNTIME_DIR"] = str(runtime)
+            env["CODEX_INPUT_FIFO"] = str(runtime / "input.fifo")
+            env["CODEX_OUTPUT_FIFO"] = str(runtime / "output.fifo")
+            env["CODEX_TMUX_SESSION"] = self.tmux_sessions.get("codex", "")
+
+        if "gemini" in self.providers:
+            runtime = self.runtime_dir / "gemini"
+            env["GEMINI_SESSION_ID"] = self.session_id
+            env["GEMINI_RUNTIME_DIR"] = str(runtime)
+            env["GEMINI_TMUX_SESSION"] = self.tmux_sessions.get("gemini", "")
+
+        cmd = ["claude"]
+        if self.auto:
+            cmd.append("--dangerously-skip-permissions")
+        if self.resume:
+            cmd.append("-c")
+
+        print(f"📋 会话ID: {self.session_id}")
+        print(f"📁 运行目录: {self.runtime_dir}")
+        print(f"🔌 活跃后端: {', '.join(self.providers)}")
+        print()
+        print("🎯 可用命令:")
+        if "codex" in self.providers:
+            print("   cask/cask-w/cping/cpend - Codex 通信")
+        if "gemini" in self.providers:
+            print("   gask/gask-w/gping/gpend - Gemini 通信")
+        print()
+        print(f"执行: {' '.join(cmd)}")
+
+        try:
+            return subprocess.run(cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr, env=env).returncode
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 130
+
+    def cleanup(self):
+        if self._cleaned:
+            return
+        self._cleaned = True
+        print("\n🧹 清理会话资源...")
+
+        for provider, tmux_session in self.tmux_sessions.items():
+            subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
+            subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
+
+        for session_file in [Path.cwd() / ".codex-session", Path.cwd() / ".gemini-session"]:
+            if session_file.exists():
+                try:
+                    data = json.loads(session_file.read_text())
+                    data["active"] = False
+                    data["ended_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
+
+        import shutil
+        if self.runtime_dir.exists():
+            shutil.rmtree(self.runtime_dir, ignore_errors=True)
+
+        print("✅ 清理完成")
+
+    def run_up(self) -> int:
+        print(f"🚀 Claude AI 启动器")
+        print(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"🔌 后端: {', '.join(self.providers)}")
+        print("=" * 50)
+
+        atexit.register(self.cleanup)
+        signal.signal(signal.SIGINT, lambda s, f: (self.cleanup(), sys.exit(0)))
+        signal.signal(signal.SIGTERM, lambda s, f: (self.cleanup(), sys.exit(0)))
+
+        for provider in self.providers:
+            if not self._start_provider(provider):
+                return 1
+            time.sleep(1)
+
+        time.sleep(2)
+
+        if self.no_claude:
+            print("✅ 后端已启动（--no-claude 模式）")
+            print()
+            for provider in self.providers:
+                tmux = self.tmux_sessions.get(provider, "")
+                if tmux:
+                    print(f"   {provider}: tmux attach -t {tmux}")
+            print()
+            print("提示: Gemini 需要 attach 到 tmux 才能交互")
+            print(f"终止: claude_ai kill {' '.join(self.providers)}")
+            atexit.unregister(self.cleanup)
+            return 0
+
+        try:
+            return self._start_claude()
+        finally:
+            self.cleanup()
+
+
+def cmd_up(args):
+    launcher = AILauncher(
+        providers=args.providers or ["codex"],
+        resume=args.resume,
+        auto=args.auto,
+        no_claude=args.no_claude,
+    )
+    return launcher.run_up()
+
+
+def cmd_status(args):
+    providers = args.providers or ["codex", "gemini"]
+    results = {}
+
+    for provider in providers:
+        session_file = Path.cwd() / f".{provider}-session"
+        if not session_file.exists():
+            results[provider] = {"status": "未配置", "active": False}
+            continue
+
+        try:
+            data = json.loads(session_file.read_text())
+            tmux_session = data.get("tmux_session", "")
+            active = data.get("active", False)
+
+            if tmux_session:
+                result = subprocess.run(["tmux", "has-session", "-t", tmux_session], capture_output=True)
+                tmux_alive = result.returncode == 0
+            else:
+                tmux_alive = False
+
+            results[provider] = {
+                "status": "运行中" if (active and tmux_alive) else "已停止",
+                "active": active and tmux_alive,
+                "tmux_session": tmux_session,
+                "runtime_dir": data.get("runtime_dir", ""),
+            }
+        except Exception as e:
+            results[provider] = {"status": f"错误: {e}", "active": False}
+
+    print("📊 AI 后端状态:")
+    for provider, info in results.items():
+        icon = "✅" if info.get("active") else "❌"
+        print(f"  {icon} {provider.capitalize()}: {info['status']}")
+        if info.get("tmux_session"):
+            print(f"     tmux: {info['tmux_session']}")
+
+    return 0
+
+
+def cmd_kill(args):
+    providers = args.providers or ["codex", "gemini"]
+
+    for provider in providers:
+        session_file = Path.cwd() / f".{provider}-session"
+        if not session_file.exists():
+            print(f"⚠️ {provider}: 未找到会话文件")
+            continue
+
+        try:
+            data = json.loads(session_file.read_text())
+            tmux_session = data.get("tmux_session", "")
+
+            if tmux_session:
+                subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
+                subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
+
+            data["active"] = False
+            data["ended_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+            print(f"✅ {provider.capitalize()} 已终止")
+        except Exception as e:
+            print(f"❌ {provider}: {e}")
+
+    return 0
+
+
+def cmd_restore(args):
+    providers = args.providers or ["codex"]
+
+    for provider in providers:
+        session_file = Path.cwd() / f".{provider}-session"
+        if not session_file.exists():
+            print(f"⚠️ {provider}: 未找到会话文件")
+            continue
+
+        try:
+            data = json.loads(session_file.read_text())
+            tmux_session = data.get("tmux_session", "")
+            active = data.get("active", False)
+
+            if tmux_session:
+                result = subprocess.run(["tmux", "has-session", "-t", tmux_session], capture_output=True)
+                if result.returncode == 0:
+                    subprocess.run(["tmux", "attach-session", "-t", tmux_session])
+                    return 0
+
+            if not active:
+                session_id = data.get("codex_session_id") if provider == "codex" else None
+                if session_id:
+                    print(f"ℹ️ {provider}: 会话已结束，但可恢复历史会话")
+                    print(f"   会话ID: {session_id[:8]}...")
+                    print(f"   使用: claude_ai up {provider} -r")
+                else:
+                    print(f"⚠️ {provider}: 会话已结束，无可恢复历史")
+            else:
+                print(f"⚠️ {provider}: tmux 会话已丢失，使用 claude_ai up {provider} -r 重启")
+
+        except Exception as e:
+            print(f"❌ {provider}: {e}")
+
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Claude AI 统一启动器", add_help=True)
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
+
+    # up 子命令
+    up_parser = subparsers.add_parser("up", help="启动 AI 后端")
+    up_parser.add_argument("providers", nargs="*", choices=["codex", "gemini"], help="要启动的后端")
+    up_parser.add_argument("-r", "--resume", action="store_true", help="恢复上下文")
+    up_parser.add_argument("-a", "--auto", action="store_true", help="全自动权限模式")
+    up_parser.add_argument("--no-claude", action="store_true", help="不启动 Claude 主窗口")
+
+    # status 子命令
+    status_parser = subparsers.add_parser("status", help="检查状态")
+    status_parser.add_argument("providers", nargs="*", default=[], help="要检查的后端 (codex/gemini)")
+
+    # kill 子命令
+    kill_parser = subparsers.add_parser("kill", help="终止会话")
+    kill_parser.add_argument("providers", nargs="*", default=[], help="要终止的后端 (codex/gemini)")
+
+    # restore 子命令
+    restore_parser = subparsers.add_parser("restore", help="恢复/attach 会话")
+    restore_parser.add_argument("providers", nargs="*", default=[], help="要恢复的后端 (codex/gemini)")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 0
+
+    if args.command == "up":
+        return cmd_up(args)
+    elif args.command == "status":
+        return cmd_status(args)
+    elif args.command == "kill":
+        return cmd_kill(args)
+    elif args.command == "restore":
+        return cmd_restore(args)
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
