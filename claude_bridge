@@ -136,7 +136,11 @@ exec tmux attach -t "$TMUX_SESSION"
 
         terminal = self._detect_terminal()
         if terminal == "tmux":
-            subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
+            if platform.system() == "Darwin":
+                # macOS: 直接执行 wrapper.sh，避免 launcher 嵌套导致权限交互失败
+                os.execv("/bin/bash", ["/bin/bash", str(script_file)])
+            else:
+                subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
         else:
             subprocess.Popen([terminal, "-e", str(script_file)])
 
