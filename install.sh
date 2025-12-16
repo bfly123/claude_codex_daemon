@@ -228,7 +228,8 @@ install_claude_commands() {
   echo "已更新 Claude 命令目录: $claude_dir"
 }
 
-CODEX_RULE_MARKER="## Codex 协作规则"
+RULE_MARKER="## Codex Collaboration Rules"
+LEGACY_RULE_MARKER="## Codex 协作规则"
 
 remove_codex_mcp() {
   local claude_config="$HOME/.claude.json"
@@ -290,46 +291,74 @@ install_claude_md_config() {
   local claude_md="$HOME/.claude/CLAUDE.md"
   mkdir -p "$HOME/.claude"
 
-  if [[ -f "$claude_md" ]] && grep -q "$CODEX_RULE_MARKER" "$claude_md" 2>/dev/null; then
-    echo "检测到旧的 Codex 协作规则，正在更新..."
-    python3 -c "
+  # Remove old rules (both legacy Chinese and new English versions)
+  if [[ -f "$claude_md" ]]; then
+    if grep -qE "$RULE_MARKER|$LEGACY_RULE_MARKER|## Gemini" "$claude_md" 2>/dev/null; then
+      echo "Removing old collaboration rules..."
+      python3 -c "
 import re
 with open('$claude_md', 'r', encoding='utf-8') as f:
     content = f.read()
-pattern = r'## Codex 协作规则.*?(?=\n## |\Z)'
-content = re.sub(pattern, '', content, flags=re.DOTALL)
+# Remove all collaboration rule sections
+patterns = [
+    r'## Codex Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Codex 协作规则.*?(?=\n## |\Z)',
+    r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Gemini 协作规则.*?(?=\n## |\Z)',
+]
+for p in patterns:
+    content = re.sub(p, '', content, flags=re.DOTALL)
 content = content.rstrip() + '\n'
 with open('$claude_md', 'w', encoding='utf-8') as f:
     f.write(content)
 "
+    fi
   fi
 
-  cat >> "$claude_md" << 'CODEX_RULES'
+  cat >> "$claude_md" << 'AI_RULES'
 
-## Codex 协作规则
-Codex 是通过 tmux 运行的另一个 AI 助手。当用户的意图涉及「询问/请教/协作 Codex」时，根据语义判断调用：
+## Codex Collaboration Rules
+Codex is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Codex:
 
-判断标准（任一满足即调用）：
-- 用户提到 codex/Codex 且带有疑问/请求/协作语气
-- 用户想让 codex 做某事、给建议、帮忙看
-- 用户询问 codex 的状态或之前的回复
+Trigger conditions (any match):
+- User mentions codex/Codex with questioning/requesting tone
+- User wants codex to do something, give advice, or help review
+- User asks about codex's status or previous reply
 
-命令选择：
-- 默认询问/协作 → `cask-w "<问题或指令>"`（同步等待回复，无限等待）
-- 仅发送不等待 → `cask "<问题或指令>"`（异步，立即返回）
-- 只想查状态/连通性 → `cping`
-- 只想看之前的回复 → `cpend`
+Command selection:
+- Default ask/collaborate → `cask-w "<question>"` (sync, waits for reply)
+- Send without waiting → `cask "<question>"` (async, returns immediately)
+- Check connectivity → `cping`
+- View previous reply → `cpend`
 
-示例：
-- "codex 对此有什么建议" → cask-w（默认同步）
-- "让 codex 帮忙看看" → cask-w
-- "问一下 codex 这个问题" → cask-w
-- "codex 那边怎么说" → cpend
-- "codex 还活着吗" → cping
-- "不用等回复" / "异步发送" → cask
-CODEX_RULES
+Examples:
+- "what does codex think" → cask-w
+- "ask codex to review this" → cask-w
+- "is codex alive" → cping
+- "don't wait for reply" → cask
 
-  echo "已更新 Codex 协作规则到 $claude_md"
+## Gemini Collaboration Rules
+Gemini is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Gemini:
+
+Trigger conditions (any match):
+- User mentions gemini/Gemini with questioning/requesting tone
+- User wants gemini to do something, give advice, or help review
+- User asks about gemini's status or previous reply
+
+Command selection:
+- Default ask/collaborate → `gask-w "<question>"` (sync, waits for reply)
+- Send without waiting → `gask "<question>"` (async, returns immediately)
+- Check connectivity → `gping`
+- View previous reply → `gpend`
+
+Examples:
+- "what does gemini think" → gask-w
+- "ask gemini to review this" → gask-w
+- "is gemini alive" → gping
+- "don't wait for reply" → gask
+AI_RULES
+
+  echo "Updated AI collaboration rules in $claude_md"
 }
 
 install_settings_permissions() {
@@ -341,6 +370,10 @@ install_settings_permissions() {
     'Bash(cask-w:*)'
     'Bash(cpend)'
     'Bash(cping)'
+    'Bash(gask:*)'
+    'Bash(gask-w:*)'
+    'Bash(gpend)'
+    'Bash(gping)'
   )
 
   if [[ ! -f "$settings_file" ]]; then
@@ -351,13 +384,17 @@ install_settings_permissions() {
       "Bash(cask:*)",
       "Bash(cask-w:*)",
       "Bash(cpend)",
-      "Bash(cping)"
+      "Bash(cping)",
+      "Bash(gask:*)",
+      "Bash(gask-w:*)",
+      "Bash(gpend)",
+      "Bash(gping)"
     ],
     "deny": []
   }
 }
 SETTINGS
-    echo "已创建 $settings_file 并添加权限"
+    echo "Created $settings_file with permissions"
     return
   fi
 
