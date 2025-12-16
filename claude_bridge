@@ -78,6 +78,7 @@ class AILauncher:
             os.mkfifo(output_fifo, 0o644)
 
         start_cmd = "codex --full-auto" if self.auto else "codex"
+        codex_resumed = False
         if self.resume:
             session_file = Path.cwd() / ".codex-session"
             if session_file.exists():
@@ -86,9 +87,12 @@ class AILauncher:
                     session_id = data.get("codex_session_id")
                     if session_id:
                         start_cmd = f"codex {'--full-auto ' if self.auto else ''}resume {session_id}"
-                        print(f"🔁 恢复 Codex 会话: {session_id[:8]}...")
+                        print(f"🔁 Resuming Codex session: {session_id[:8]}...")
+                        codex_resumed = True
                 except Exception:
                     pass
+            if not codex_resumed:
+                print("ℹ️ No Codex history found, starting fresh")
 
         bridge_script = self.script_dir / "lib" / "codex_dual_bridge.py"
         wrapper = f'''#!/bin/bash
@@ -152,8 +156,18 @@ exec tmux attach -t "$TMUX_SESSION"
         runtime.mkdir(parents=True, exist_ok=True)
 
         start_cmd = "gemini"
+        gemini_resumed = False
         if self.resume:
-            start_cmd = "gemini -r latest"
+            # Check if Gemini has history in ~/.gemini/tmp/<hash>/chats/
+            import hashlib
+            project_hash = hashlib.sha256(str(Path.cwd().resolve()).encode()).hexdigest()
+            gemini_chats = Path.home() / ".gemini" / "tmp" / project_hash / "chats"
+            if gemini_chats.exists() and any(gemini_chats.glob("session-*.json")):
+                start_cmd = "gemini -r latest"
+                print("🔁 Resuming Gemini session...")
+                gemini_resumed = True
+            else:
+                print("ℹ️ No Gemini history found, starting fresh")
         if self.auto:
             start_cmd = start_cmd.replace("gemini", "gemini --yolo", 1)
 
@@ -260,7 +274,13 @@ exec tmux attach -t "{tmux_session}"
         if self.auto:
             cmd.append("--dangerously-skip-permissions")
         if self.resume:
-            cmd.append("-c")
+            # Check if Claude has conversation history in current directory
+            claude_history = Path.cwd() / ".claude" / "conversation.json"
+            if claude_history.exists():
+                cmd.append("-c")
+                print("🔁 Resuming Claude session...")
+            else:
+                print("ℹ️ No Claude history found, starting fresh")
 
         print(f"📋 会话ID: {self.session_id}")
         print(f"📁 运行目录: {self.runtime_dir}")
