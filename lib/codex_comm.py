@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
+from terminal import get_backend_for_session, get_pane_id_from_session
+
 SESSION_ROOT = Path.home() / ".codex" / "sessions"
 SESSION_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
@@ -226,6 +228,9 @@ class CodexCommunicator:
         self.session_id = self.session_info["session_id"]
         self.runtime_dir = Path(self.session_info["runtime_dir"])
         self.input_fifo = Path(self.session_info["input_fifo"])
+        self.terminal = self.session_info.get("terminal", os.environ.get("CODEX_TERMINAL", "tmux"))
+        self.pane_id = get_pane_id_from_session(self.session_info) or ""
+        self.backend = get_backend_for_session(self.session_info)
 
         self.timeout = int(os.environ.get("CODEX_SYNC_TIMEOUT", "30"))
         self.marker_prefix = "ask"
@@ -247,6 +252,9 @@ class CodexCommunicator:
                 "runtime_dir": os.environ["CODEX_RUNTIME_DIR"],
                 "input_fifo": os.environ["CODEX_INPUT_FIFO"],
                 "output_fifo": os.environ.get("CODEX_OUTPUT_FIFO", ""),
+                "terminal": os.environ.get("CODEX_TERMINAL", "tmux"),
+                "tmux_session": os.environ.get("CODEX_TMUX_SESSION", ""),
+                "pane_id": os.environ.get("CODEX_WEZTERM_PANE", ""),
                 "_session_file": None,
             }
 
@@ -286,6 +294,16 @@ class CodexCommunicator:
             if not self.runtime_dir.exists():
                 return False, "运行时目录不存在"
 
+            # WezTerm 模式：没有 tmux wrapper，因此通常不会生成 codex.pid；
+            # 以 pane 存活作为健康判定（与 Gemini 逻辑一致）。
+            if self.terminal == "wezterm":
+                if not self.pane_id:
+                    return False, "未找到 WezTerm pane_id"
+                if not self.backend or not self.backend.is_alive(self.pane_id):
+                    return False, f"WezTerm pane 不存在: {self.pane_id}"
+                return True, "会话正常"
+
+            # tmux 模式：依赖 wrapper 写入 codex.pid 与 FIFO
             codex_pid_file = self.runtime_dir / "codex.pid"
             if not codex_pid_file.exists():
                 return False, "Codex进程PID文件不存在"
@@ -304,6 +322,11 @@ class CodexCommunicator:
         except Exception as exc:
             return False, f"检查失败: {exc}"
 
+    def _send_via_terminal(self, content: str) -> None:
+        if not self.backend or not self.pane_id:
+            raise RuntimeError("未配置终端会话")
+        self.backend.send_text(self.pane_id, content)
+
     def _send_message(self, content: str) -> Tuple[str, Dict[str, Any]]:
         marker = self._generate_marker()
         message = {
@@ -314,9 +337,13 @@ class CodexCommunicator:
 
         state = self.log_reader.capture_state()
 
-        with open(self.input_fifo, "w", encoding="utf-8") as fifo:
-            fifo.write(json.dumps(message, ensure_ascii=False) + "\n")
-            fifo.flush()
+        # tmux 模式优先通过 FIFO 驱动桥接器；WezTerm 模式则直接向 pane 注入文本
+        if self.terminal == "wezterm":
+            self._send_via_terminal(content)
+        else:
+            with open(self.input_fifo, "w", encoding="utf-8") as fifo:
+                fifo.write(json.dumps(message, ensure_ascii=False) + "\n")
+                fifo.flush()
 
         return marker, state
 

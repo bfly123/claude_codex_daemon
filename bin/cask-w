@@ -1,111 +1,33 @@
 #!/usr/bin/env python3
 """
-cask-w 命令
-将输入转发到 Codex tmux 会话，默认使用 /cask-w 同步等待。
+cask-w - 同步发送消息到 Codex 并等待回复
 """
-
 from __future__ import annotations
-
-import importlib.machinery
-import importlib.util
 import sys
+import time
 from pathlib import Path
-from typing import Tuple
+
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+from codex_comm import CodexCommunicator
+from terminal import get_backend_for_session, get_pane_id_from_session
+
+import importlib.util
+import importlib.machinery
 
 
 def _usage() -> None:
-    print("用法: cask-w <原始指令>", file=sys.stderr)
-    print('示例: cask-w "解释一下当前脚本作用"', file=sys.stderr)
+    print("用法: cask-w <消息>", file=sys.stderr)
 
 
 def _load_cask_module():
-    script_dir = Path(__file__).resolve().parent
     cask_path = script_dir / "cask"
-    if not cask_path.exists():
-        raise RuntimeError("❌ 未找到 cask 命令脚本，请确认安装是否完整")
-
-    spec = importlib.util.spec_from_loader(
-        "codex_cask",
-        importlib.machinery.SourceFileLoader("codex_cask", str(cask_path))
-    )
-    if not spec or not spec.loader:
-        raise RuntimeError("❌ 无法加载 cask 模块")
+    spec = importlib.util.spec_from_loader("cask", importlib.machinery.SourceFileLoader("cask", str(cask_path)))
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    spec.loader.exec_module(module)
     return module
-
-
-def _prepare_payload(raw: str) -> str:
-    # cask-w 应该原样转发，不添加前缀（与 cask 行为一致）
-    stripped = raw.strip()
-    if not stripped:
-        raise RuntimeError("❌ 指令内容不能为空")
-    return raw
-
-
-def _capture_log_state():
-    """在发送命令前捕获日志状态"""
-    script_dir = Path(__file__).resolve().parent
-    lib_dir = script_dir.parent / "lib"
-    sys.path.insert(0, str(lib_dir))
-
-    from codex_comm import CodexCommunicator
-    comm = CodexCommunicator()
-    return comm.log_reader.capture_state()
-
-
-def _send(module, payload: str) -> Tuple[str, str]:
-    session, runtime = module._resolve_tmux_session()
-    module._ensure_tmux_session(session)
-    module._send_via_tmux(session, payload)
-    location = runtime or "tmux"
-    return session, location
-
-
-def _wait_for_reply(initial_state: dict, timeout: int = 0) -> tuple:
-    """等待并获取新的 Codex 回复，timeout=0 表示无限等待"""
-    script_dir = Path(__file__).resolve().parent
-    lib_dir = script_dir.parent / "lib"
-    sys.path.insert(0, str(lib_dir))
-
-    from codex_comm import CodexCommunicator
-    import time
-
-    comm = CodexCommunicator()
-
-    start_time = time.time()
-    last_hint = 0
-    while timeout == 0 or time.time() - start_time < timeout:
-        message, new_state = comm.log_reader.wait_for_message(initial_state, timeout=1.0)
-        if message:
-            return message, new_state
-        initial_state = new_state if new_state else initial_state
-
-        elapsed = int(time.time() - start_time)
-        if elapsed >= last_hint + 30:
-            last_hint = elapsed
-            print(f"⏳ 仍在等待 Codex 回复... ({elapsed}s)")
-
-    return None, initial_state
-
-
-def _save_pending_state(state: dict) -> None:
-    """保存超时时的状态，供 cpend 继续读取"""
-    import json
-    session_file = Path.cwd() / ".codex-session"
-    if not session_file.exists():
-        return
-    try:
-        with session_file.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        data["pending_state"] = {
-            "log_path": str(state.get("log_path")) if state.get("log_path") else None,
-            "offset": state.get("offset", 0),
-        }
-        with session_file.open("w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
 
 
 def main(argv: list[str]) -> int:
@@ -113,28 +35,39 @@ def main(argv: list[str]) -> int:
         _usage()
         return 1
 
-    raw_command = " ".join(argv[1:])
-    if not raw_command.strip():
+    message = " ".join(argv[1:]).strip()
+    if not message:
         _usage()
         return 1
 
     try:
-        initial_state = _capture_log_state()
-        module = _load_cask_module()
-        payload = _prepare_payload(raw_command)
-        session, location = _send(module, payload)
+        cask = _load_cask_module()
+        data, pane_id = cask._resolve_session()
+        backend = get_backend_for_session(data)
 
+        if not backend or not backend.is_alive(pane_id):
+            raise RuntimeError("❌ Codex 会话不存在")
+
+        comm = CodexCommunicator()
+        state = comm.log_reader.capture_state()
+
+        backend.send_text(pane_id, message)
         print("⏳ 等待 Codex 回复...")
-        reply, final_state = _wait_for_reply(initial_state)
-        if reply:
-            print("\n🤖 Codex 回复:")
-            print(reply)
-            return 0
-        else:
-            _save_pending_state(final_state)
-            print("\n⏰ 超时：未在限定时间内收到 Codex 回复")
-            print("提示: 稍后使用 cpend 查看回复")
-            return 0
+
+        start = time.time()
+        last_hint = 0
+        while True:
+            reply, new_state = comm.log_reader.wait_for_message(state, timeout=1.0)
+            if reply:
+                print("\n🤖 Codex 回复:")
+                print(reply)
+                return 0
+            state = new_state or state
+            elapsed = int(time.time() - start)
+            if elapsed >= last_hint + 30:
+                last_hint = elapsed
+                print(f"⏳ 仍在等待... ({elapsed}s)")
+
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1

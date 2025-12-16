@@ -31,7 +31,7 @@ def main(argv: list[str]) -> int:
         state = comm.log_reader.capture_state()
 
         print(f"🔔 发送到 Gemini: {message[:50]}{'...' if len(message) > 50 else ''}")
-        comm._send_via_tmux(message)
+        comm._send_via_terminal(message)
 
         print("⏳ 等待 Gemini 回复...")
         start_time = time.time()

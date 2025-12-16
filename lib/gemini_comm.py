@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Gemini 通信模块
-通过 tmux 发送请求，从 ~/.gemini/tmp/<hash>/chats/session-*.json 读取回复
+支持 tmux 和 WezTerm 终端发送请求，从 ~/.gemini/tmp/<hash>/chats/session-*.json 读取回复
 """
 
 from __future__ import annotations
@@ -10,9 +10,10 @@ import hashlib
 import json
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
+
+from terminal import get_backend_for_session, get_pane_id_from_session
 
 GEMINI_ROOT = Path.home() / ".gemini" / "tmp"
 
@@ -164,30 +165,34 @@ class GeminiLogReader:
 
 
 class GeminiCommunicator:
-    """通过 tmux 与 Gemini 通信，并从会话文件读取回复"""
+    """通过终端与 Gemini 通信，并从会话文件读取回复"""
 
     def __init__(self):
         self.session_info = self._load_session_info()
         if not self.session_info:
-            raise RuntimeError("❌ 未找到活跃的 Gemini 会话，请先运行 claude_ai up gemini")
+            raise RuntimeError("❌ 未找到活跃的 Gemini 会话，请先运行 claude_bridge up gemini")
 
         self.session_id = self.session_info["session_id"]
         self.runtime_dir = Path(self.session_info["runtime_dir"])
-        self.tmux_session = self.session_info.get("tmux_session", "")
+        self.terminal = self.session_info.get("terminal", "tmux")
+        self.pane_id = get_pane_id_from_session(self.session_info)
         self.timeout = int(os.environ.get("GEMINI_SYNC_TIMEOUT", "60"))
         self.log_reader = GeminiLogReader()
         self.project_session_file = self.session_info.get("_session_file")
+        self.backend = get_backend_for_session(self.session_info)
 
         healthy, msg = self._check_session_health()
         if not healthy:
-            raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 claude_ai up gemini")
+            raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 claude_bridge up gemini")
 
     def _load_session_info(self):
         if "GEMINI_SESSION_ID" in os.environ:
             return {
                 "session_id": os.environ["GEMINI_SESSION_ID"],
                 "runtime_dir": os.environ["GEMINI_RUNTIME_DIR"],
+                "terminal": os.environ.get("GEMINI_TERMINAL", "tmux"),
                 "tmux_session": os.environ.get("GEMINI_TMUX_SESSION", ""),
+                "pane_id": os.environ.get("GEMINI_WEZTERM_PANE", ""),
                 "_session_file": None,
             }
 
@@ -199,10 +204,7 @@ class GeminiCommunicator:
             with open(project_session, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            if not isinstance(data, dict):
-                return None
-
-            if not data.get("active", False):
+            if not isinstance(data, dict) or not data.get("active", False):
                 return None
 
             runtime_dir = Path(data.get("runtime_dir", ""))
@@ -219,54 +221,19 @@ class GeminiCommunicator:
         try:
             if not self.runtime_dir.exists():
                 return False, "运行时目录不存在"
-
-            if self.tmux_session:
-                import subprocess
-                result = subprocess.run(
-                    ["tmux", "has-session", "-t", self.tmux_session],
-                    capture_output=True
-                )
-                if result.returncode != 0:
-                    return False, f"tmux 会话 {self.tmux_session} 不存在"
-
+            if not self.pane_id:
+                return False, "未找到会话 ID"
+            if self.backend and not self.backend.is_alive(self.pane_id):
+                return False, f"{self.terminal} 会话 {self.pane_id} 不存在"
             return True, "会话正常"
         except Exception as exc:
             return False, f"检查失败: {exc}"
 
-    def _send_via_tmux(self, content: str) -> bool:
-        if not self.tmux_session:
-            raise RuntimeError("未配置 tmux 会话")
-        import subprocess
-        import tempfile
-
-        marker = f"gemini-ask-{int(time.time())}-{os.getpid()}"
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        try:
-            subprocess.run(
-                ["tmux", "load-buffer", "-b", marker, tmp_path],
-                check=True, capture_output=True
-            )
-            subprocess.run(
-                ["tmux", "paste-buffer", "-t", self.tmux_session, "-b", marker],
-                check=True, capture_output=True
-            )
-            subprocess.run(
-                ["tmux", "send-keys", "-t", self.tmux_session, "Enter"],
-                check=True, capture_output=True
-            )
-            subprocess.run(
-                ["tmux", "delete-buffer", "-b", marker],
-                capture_output=True
-            )
-            return True
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"tmux 发送失败: {e}")
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+    def _send_via_terminal(self, content: str) -> bool:
+        if not self.backend or not self.pane_id:
+            raise RuntimeError("未配置终端会话")
+        self.backend.send_text(self.pane_id, content)
+        return True
 
     def ask_async(self, question: str) -> bool:
         try:
@@ -274,7 +241,7 @@ class GeminiCommunicator:
             if not healthy:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
-            self._send_via_tmux(question)
+            self._send_via_terminal(question)
             print(f"✅ 已发送到 Gemini")
             print("提示: 使用 gpend 查看回复")
             return True
@@ -290,7 +257,7 @@ class GeminiCommunicator:
 
             state = self.log_reader.capture_state()
             print("🔔 发送问题到 Gemini...")
-            self._send_via_tmux(question)
+            self._send_via_terminal(question)
 
             wait_timeout = timeout or self.timeout
             print(f"⏳ 等待 Gemini 回复 (超时 {wait_timeout} 秒)...")
@@ -329,7 +296,8 @@ class GeminiCommunicator:
         return {
             "session_id": self.session_id,
             "runtime_dir": str(self.runtime_dir),
-            "tmux_session": self.tmux_session,
+            "terminal": self.terminal,
+            "pane_id": self.pane_id,
             "healthy": healthy,
             "status": status,
         }

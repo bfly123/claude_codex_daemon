@@ -6,8 +6,9 @@
 
 检测内容:
 1. `.codex-session` 是否标记为活跃，运行目录是否存在
-2. FIFO 管道是否仍可访问
-3. Codex 侧 tmux 进程是否存活（根据 `codex.pid` 验证）
+2. tmux 模式：FIFO 管道是否仍可访问
+3. tmux 模式：Codex 侧进程是否存活（根据 `codex.pid` 验证）
+4. WezTerm 模式：pane 是否仍存在（根据 `wezterm cli list` 检测）
 
 输出说明:
 - 成功：`✅ Codex连接正常 (...)`

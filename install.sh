@@ -158,10 +158,15 @@ print_tmux_install_hint() {
 }
 
 require_tmux() {
-  if command -v tmux >/dev/null 2>&1; then
+  if command -v wezterm >/dev/null 2>&1; then
+    echo "✓ 检测到 WezTerm"
     return
   fi
-  echo "❌ 缺少依赖: tmux"
+  if command -v tmux >/dev/null 2>&1; then
+    echo "✓ 检测到 tmux"
+    return
+  fi
+  echo "❌ 缺少依赖: tmux 或 wezterm (至少需要安装其中一个)"
   print_tmux_install_hint
   exit 1
 }

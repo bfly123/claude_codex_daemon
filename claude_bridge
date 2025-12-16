@@ -2,6 +2,7 @@
 """
 claude_ai - 统一 AI 启动器
 支持 Claude + Codex / Claude + Gemini / 三者同时
+支持 tmux 和 WezTerm 终端
 """
 
 import sys
@@ -16,6 +17,10 @@ import uuid
 import getpass
 import platform
 from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(script_dir / "lib"))
+from terminal import TmuxBackend, WeztermBackend, detect_terminal
 
 
 def is_wsl() -> bool:
@@ -37,8 +42,17 @@ class AILauncher:
         self.runtime_dir = self.temp_base / f"claude-ai-{getpass.getuser()}" / self.session_id
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._cleaned = False
+        self.terminal_type = self._detect_terminal_type()
         self.tmux_sessions = {}
+        self.wezterm_panes = {}
         self.processes = {}
+
+    def _detect_terminal_type(self):
+        # 只有在 WezTerm 环境中才用 WezTerm 分屏
+        if os.environ.get("WEZTERM_PANE"):
+            return "wezterm"
+        # 其他情况都用 tmux
+        return "tmux"
 
     def _detect_terminal(self):
         if is_wsl():
@@ -52,7 +66,10 @@ class AILauncher:
         return "tmux"
 
     def _start_provider(self, provider: str) -> bool:
-        print(f"🚀 启动 {provider.capitalize()} 后端...")
+        print(f"🚀 启动 {provider.capitalize()} 后端 ({self.terminal_type})...")
+
+        if self.terminal_type == "wezterm":
+            return self._start_provider_wezterm(provider)
 
         tmux_session = f"{provider}-{int(time.time()) % 100000}-{os.getpid()}"
         self.tmux_sessions[provider] = tmux_session
@@ -64,6 +81,61 @@ class AILauncher:
         else:
             print(f"❌ 未知的 provider: {provider}")
             return False
+
+    def _start_provider_wezterm(self, provider: str) -> bool:
+        runtime = self.runtime_dir / provider
+        runtime.mkdir(parents=True, exist_ok=True)
+
+        start_cmd = self._get_start_cmd(provider)
+        direction = "right" if provider == "codex" or not self.wezterm_panes else "bottom"
+        parent_pane = self.wezterm_panes.get("codex") if provider == "gemini" and self.wezterm_panes else None
+
+        backend = WeztermBackend()
+        pane_id = backend.create_pane(start_cmd, str(Path.cwd()), direction=direction, percent=50, parent_pane=parent_pane)
+        self.wezterm_panes[provider] = pane_id
+
+        if provider == "codex":
+            input_fifo = runtime / "input.fifo"
+            output_fifo = runtime / "output.fifo"
+            if not input_fifo.exists():
+                os.mkfifo(input_fifo, 0o600)
+            if not output_fifo.exists():
+                os.mkfifo(output_fifo, 0o644)
+            self._write_codex_session(runtime, None, input_fifo, output_fifo, pane_id=pane_id)
+        else:
+            self._write_gemini_session(runtime, None, pane_id=pane_id)
+
+        print(f"✅ {provider.capitalize()} 已启动 (wezterm pane: {pane_id})")
+        return True
+
+    def _get_start_cmd(self, provider: str) -> str:
+        if provider == "codex":
+            cmd = "codex --full-auto" if self.auto else "codex"
+            if self.resume:
+                session_file = Path.cwd() / ".codex-session"
+                if session_file.exists():
+                    try:
+                        data = json.loads(session_file.read_text())
+                        session_id = data.get("codex_session_id")
+                        if session_id:
+                            cmd = f"codex {'--full-auto ' if self.auto else ''}resume {session_id}"
+                            print(f"🔁 Resuming Codex session: {session_id[:8]}...")
+                    except Exception:
+                        pass
+            return cmd
+        elif provider == "gemini":
+            cmd = "gemini"
+            if self.resume:
+                import hashlib
+                project_hash = hashlib.sha256(str(Path.cwd().resolve()).encode()).hexdigest()
+                gemini_chats = Path.home() / ".gemini" / "tmp" / project_hash / "chats"
+                if gemini_chats.exists() and any(gemini_chats.glob("session-*.json")):
+                    cmd = "gemini -r latest"
+                    print("🔁 Resuming Gemini session...")
+            if self.auto:
+                cmd = cmd.replace("gemini", "gemini --yolo", 1)
+            return cmd
+        return ""
 
     def _start_codex(self, tmux_session: str) -> bool:
         runtime = self.runtime_dir / "codex"
@@ -218,7 +290,7 @@ exec tmux attach -t "{tmux_session}"
         print(f"✅ Gemini 已启动 (tmux: {tmux_session})")
         return True
 
-    def _write_codex_session(self, runtime, tmux_session, input_fifo, output_fifo):
+    def _write_codex_session(self, runtime, tmux_session, input_fifo, output_fifo, pane_id=None):
         session_file = Path.cwd() / ".codex-session"
         data = {}
         if session_file.exists():
@@ -232,7 +304,9 @@ exec tmux attach -t "{tmux_session}"
             "runtime_dir": str(runtime),
             "input_fifo": str(input_fifo),
             "output_fifo": str(output_fifo),
+            "terminal": self.terminal_type,
             "tmux_session": tmux_session,
+            "pane_id": pane_id,
             "tmux_log": str(runtime / "bridge_output.log"),
             "work_dir": str(Path.cwd()),
             "active": True,
@@ -240,12 +314,14 @@ exec tmux attach -t "{tmux_session}"
         })
         session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
-    def _write_gemini_session(self, runtime, tmux_session):
+    def _write_gemini_session(self, runtime, tmux_session, pane_id=None):
         session_file = Path.cwd() / ".gemini-session"
         data = {
             "session_id": self.session_id,
             "runtime_dir": str(runtime),
+            "terminal": self.terminal_type,
             "tmux_session": tmux_session,
+            "pane_id": pane_id,
             "work_dir": str(Path.cwd()),
             "active": True,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -262,13 +338,21 @@ exec tmux attach -t "{tmux_session}"
             env["CODEX_RUNTIME_DIR"] = str(runtime)
             env["CODEX_INPUT_FIFO"] = str(runtime / "input.fifo")
             env["CODEX_OUTPUT_FIFO"] = str(runtime / "output.fifo")
-            env["CODEX_TMUX_SESSION"] = self.tmux_sessions.get("codex", "")
+            env["CODEX_TERMINAL"] = self.terminal_type
+            if self.terminal_type == "wezterm":
+                env["CODEX_WEZTERM_PANE"] = self.wezterm_panes.get("codex", "")
+            else:
+                env["CODEX_TMUX_SESSION"] = self.tmux_sessions.get("codex", "")
 
         if "gemini" in self.providers:
             runtime = self.runtime_dir / "gemini"
             env["GEMINI_SESSION_ID"] = self.session_id
             env["GEMINI_RUNTIME_DIR"] = str(runtime)
-            env["GEMINI_TMUX_SESSION"] = self.tmux_sessions.get("gemini", "")
+            env["GEMINI_TERMINAL"] = self.terminal_type
+            if self.terminal_type == "wezterm":
+                env["GEMINI_WEZTERM_PANE"] = self.wezterm_panes.get("gemini", "")
+            else:
+                env["GEMINI_TMUX_SESSION"] = self.tmux_sessions.get("gemini", "")
 
         cmd = ["claude"]
         if self.auto:
@@ -306,9 +390,15 @@ exec tmux attach -t "{tmux_session}"
         self._cleaned = True
         print("\n🧹 清理会话资源...")
 
-        for provider, tmux_session in self.tmux_sessions.items():
-            subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
-            subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
+        if self.terminal_type == "wezterm":
+            backend = WeztermBackend()
+            for provider, pane_id in self.wezterm_panes.items():
+                if pane_id:
+                    backend.kill_pane(pane_id)
+        else:
+            for provider, tmux_session in self.tmux_sessions.items():
+                subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
+                subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
 
         for session_file in [Path.cwd() / ".codex-session", Path.cwd() / ".gemini-session"]:
             if session_file.exists():
@@ -347,12 +437,16 @@ exec tmux attach -t "{tmux_session}"
             print("✅ 后端已启动（--no-claude 模式）")
             print()
             for provider in self.providers:
-                tmux = self.tmux_sessions.get(provider, "")
-                if tmux:
-                    print(f"   {provider}: tmux attach -t {tmux}")
+                if self.terminal_type == "wezterm":
+                    pane = self.wezterm_panes.get(provider, "")
+                    if pane:
+                        print(f"   {provider}: wezterm cli activate-pane --pane-id {pane}")
+                else:
+                    tmux = self.tmux_sessions.get(provider, "")
+                    if tmux:
+                        print(f"   {provider}: tmux attach -t {tmux}")
             print()
-            print("提示: Gemini 需要 attach 到 tmux 才能交互")
-            print(f"终止: claude_ai kill {' '.join(self.providers)}")
+            print(f"终止: claude_bridge kill {' '.join(self.providers)}")
             atexit.unregister(self.cleanup)
             return 0
 
@@ -384,19 +478,24 @@ def cmd_status(args):
 
         try:
             data = json.loads(session_file.read_text())
-            tmux_session = data.get("tmux_session", "")
+            terminal = data.get("terminal", "tmux")
+            pane_id = data.get("pane_id") if terminal == "wezterm" else data.get("tmux_session", "")
             active = data.get("active", False)
 
-            if tmux_session:
-                result = subprocess.run(["tmux", "has-session", "-t", tmux_session], capture_output=True)
-                tmux_alive = result.returncode == 0
+            if terminal == "wezterm" and pane_id:
+                backend = WeztermBackend()
+                alive = backend.is_alive(pane_id)
+            elif pane_id:
+                result = subprocess.run(["tmux", "has-session", "-t", pane_id], capture_output=True)
+                alive = result.returncode == 0
             else:
-                tmux_alive = False
+                alive = False
 
             results[provider] = {
-                "status": "运行中" if (active and tmux_alive) else "已停止",
-                "active": active and tmux_alive,
-                "tmux_session": tmux_session,
+                "status": "运行中" if (active and alive) else "已停止",
+                "active": active and alive,
+                "terminal": terminal,
+                "pane_id": pane_id,
                 "runtime_dir": data.get("runtime_dir", ""),
             }
         except Exception as e:
@@ -406,8 +505,8 @@ def cmd_status(args):
     for provider, info in results.items():
         icon = "✅" if info.get("active") else "❌"
         print(f"  {icon} {provider.capitalize()}: {info['status']}")
-        if info.get("tmux_session"):
-            print(f"     tmux: {info['tmux_session']}")
+        if info.get("pane_id"):
+            print(f"     {info.get('terminal', 'tmux')}: {info['pane_id']}")
 
     return 0
 
@@ -423,11 +522,15 @@ def cmd_kill(args):
 
         try:
             data = json.loads(session_file.read_text())
-            tmux_session = data.get("tmux_session", "")
+            terminal = data.get("terminal", "tmux")
+            pane_id = data.get("pane_id") if terminal == "wezterm" else data.get("tmux_session", "")
 
-            if tmux_session:
-                subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
-                subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
+            if terminal == "wezterm" and pane_id:
+                backend = WeztermBackend()
+                backend.kill_pane(pane_id)
+            elif pane_id:
+                subprocess.run(["tmux", "kill-session", "-t", pane_id], stderr=subprocess.DEVNULL)
+                subprocess.run(["tmux", "kill-session", "-t", f"launcher-{pane_id}"], stderr=subprocess.DEVNULL)
 
             data["active"] = False
             data["ended_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -451,13 +554,19 @@ def cmd_restore(args):
 
         try:
             data = json.loads(session_file.read_text())
-            tmux_session = data.get("tmux_session", "")
+            terminal = data.get("terminal", "tmux")
+            pane_id = data.get("pane_id") if terminal == "wezterm" else data.get("tmux_session", "")
             active = data.get("active", False)
 
-            if tmux_session:
-                result = subprocess.run(["tmux", "has-session", "-t", tmux_session], capture_output=True)
+            if terminal == "wezterm" and pane_id:
+                backend = WeztermBackend()
+                if backend.is_alive(pane_id):
+                    backend.activate(pane_id)
+                    return 0
+            elif pane_id:
+                result = subprocess.run(["tmux", "has-session", "-t", pane_id], capture_output=True)
                 if result.returncode == 0:
-                    subprocess.run(["tmux", "attach-session", "-t", tmux_session])
+                    subprocess.run(["tmux", "attach-session", "-t", pane_id])
                     return 0
 
             if not active:
@@ -465,11 +574,11 @@ def cmd_restore(args):
                 if session_id:
                     print(f"ℹ️ {provider}: 会话已结束，但可恢复历史会话")
                     print(f"   会话ID: {session_id[:8]}...")
-                    print(f"   使用: claude_ai up {provider} -r")
+                    print(f"   使用: claude_bridge up {provider} -r")
                 else:
                     print(f"⚠️ {provider}: 会话已结束，无可恢复历史")
             else:
-                print(f"⚠️ {provider}: tmux 会话已丢失，使用 claude_ai up {provider} -r 重启")
+                print(f"⚠️ {provider}: 会话已丢失，使用 claude_bridge up {provider} -r 重启")
 
         except Exception as e:
             print(f"❌ {provider}: {e}")
