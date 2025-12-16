@@ -94,6 +94,7 @@ claude_bridge up codex -a         # Full permissions mode
 claude_bridge status              # Check backend status
 claude_bridge kill codex          # Terminate session
 claude_bridge restore codex       # Attach to running session
+claude_bridge update              # Update to latest version
 ```
 
 > `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.
@@ -237,6 +238,7 @@ claude_bridge up codex -a         # 最高权限模式
 claude_bridge status              # 检查后端状态
 claude_bridge kill codex          # 终止会话
 claude_bridge restore codex       # 连接到运行中的会话
+claude_bridge update              # 更新到最新版本
 ```
 
 > `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。
