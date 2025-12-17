@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-claude_ai - 统一 AI 启动器
+ccb (Claude Code Bridge) - 统一 AI 启动器
 支持 Claude + Codex / Claude + Gemini / 三者同时
 支持 tmux 和 WezTerm 终端
 """
@@ -627,7 +627,7 @@ exec tmux attach -t "$TMUX_SESSION"
                     if tmux:
                         print(f"   {provider}: tmux attach -t {tmux}")
             print()
-            print(f"终止: claude_bridge kill {' '.join(self.providers)}")
+            print(f"终止: ccb kill {' '.join(self.providers)}")
             atexit.unregister(self.cleanup)
             return 0
 
@@ -817,11 +817,11 @@ def cmd_restore(args):
                     print(f"ℹ️ {provider}: 会话已结束，但可恢复历史会话")
                     if session_id:
                         print(f"   会话ID: {session_id[:8]}...")
-                    print(f"   使用: claude_bridge up {provider} -r")
+                    print(f"   使用: ccb up {provider} -r")
                 else:
                     print(f"⚠️ {provider}: 会话已结束，无可恢复历史")
             else:
-                print(f"⚠️ {provider}: 会话已丢失，使用 claude_bridge up {provider} -r 重启")
+                print(f"⚠️ {provider}: 会话已丢失，使用 ccb up {provider} -r 重启")
 
         except Exception as e:
             print(f"❌ {provider}: {e}")
@@ -830,7 +830,7 @@ def cmd_restore(args):
 
 
 def cmd_update(args):
-    """Update claude_bridge to latest version"""
+    """Update ccb to latest version"""
     import shutil
     import urllib.request
     import tarfile
@@ -842,7 +842,7 @@ def cmd_update(args):
     install_dir = Path(os.environ.get("CODEX_INSTALL_PREFIX") or default_install_dir).expanduser()
     if (script_root / "install.sh").exists():
         install_dir = script_root
-    repo_url = "https://github.com/bfly123/claude_bridge"
+    repo_url = "https://github.com/bfly123/claude_code_bridge"
 
     print("🔄 Checking for updates...")
 
@@ -865,7 +865,7 @@ def cmd_update(args):
 
     # Method 2: Download tarball
     tarball_url = f"{repo_url}/archive/refs/heads/main.tar.gz"
-    tmp_dir = Path(tempfile.gettempdir()) / "claude_bridge_update"
+    tmp_dir = Path(tempfile.gettempdir()) / "ccb_update"
 
     try:
         print(f"📥 Downloading latest version...")
@@ -888,7 +888,7 @@ def cmd_update(args):
         with tarfile.open(tarball_path, "r:gz") as tar:
             _safe_extract(tar, tmp_dir)
 
-        extracted_dir = tmp_dir / "claude_bridge-main"
+        extracted_dir = tmp_dir / "claude_code_bridge-main"
 
         print("🔧 Installing...")
         env = os.environ.copy()

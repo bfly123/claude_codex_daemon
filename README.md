@@ -1,6 +1,6 @@
 <div align="center">
 
-# Claude-Bridge v2.0 alpha
+# Claude Code Bridge (ccb) v2.0 alpha
 
 **🌍 Cross-Platform Multi-AI Collaboration: Claude + Codex + Gemini**
 
@@ -16,7 +16,7 @@
 <img src="assets/demo.webp" alt="Dual-pane demo (animated)" width="900">
 
 <p>
-  <a href="https://github.com/bfly123/claude_bridge/releases/tag/2.0">Full demo video (GitHub Release)</a>
+  <a href="https://github.com/bfly123/claude_code_bridge/releases/tag/2.0">Full demo video (GitHub Release)</a>
 </p>
 
 </div>
@@ -30,7 +30,7 @@
 
 - **⚡ Faster Response** — Optimized send/receive latency, significantly faster than MCP
 - **🐛 macOS Fixes** — Fixed session resume and various login issues
-- **🔄 Easy Updates** — Run `claude_bridge update` instead of re-cloning
+- **🔄 Easy Updates** — Run `ccb update` instead of re-cloning
 
 > Found a bug? Run `claude` in the project directory to debug, then share your `git diff` with the maintainer!
 
@@ -42,7 +42,7 @@
 
 Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed full context every time.
 
-**claude_bridge** establishes a **persistent, lightweight channel** for sending/receiving small messages while each AI maintains its own context.
+**ccb (Claude Code Bridge)** establishes a **persistent, lightweight channel** for sending/receiving small messages while each AI maintains its own context.
 
 ### Division of Labor
 
@@ -51,7 +51,7 @@ Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed
 | **Claude Code** | Requirements analysis, architecture planning, code refactoring |
 | **Codex** | Algorithm implementation, bug hunting, code review |
 | **Gemini** | Research, alternative perspectives, verification |
-| **claude_bridge** | Session management, context isolation, communication bridge |
+| **ccb** | Session management, context isolation, communication bridge |
 
 ### Official MCP vs Persistent Dual-Pane
 
@@ -85,28 +85,28 @@ Dual-pane approach (only sends/receives small messages):
 ## Install
 
 ```bash
-git clone https://github.com/bfly123/claude_bridge.git
-cd claude_bridge
+git clone https://github.com/bfly123/claude_code_bridge.git
+cd claude_code_bridge
 ./install.sh install
 ```
 
 ## Start
 
 ```bash
-claude_bridge up codex            # Start with Codex
-claude_bridge up gemini           # Start with Gemini
-claude_bridge up codex gemini     # Start both
-claude_bridge up codex -r         # Resume previous session
-claude_bridge up codex -a         # Full permissions mode
+ccb up codex            # Start with Codex
+ccb up gemini           # Start with Gemini
+ccb up codex gemini     # Start both
+ccb up codex -r         # Resume previous session
+ccb up codex -a         # Full permissions mode
 ```
 
 ### Session Management
 
 ```bash
-claude_bridge status              # Check backend status
-claude_bridge kill codex          # Terminate session
-claude_bridge restore codex       # Attach to running session
-claude_bridge update              # Update to latest version
+ccb status              # Check backend status
+ccb kill codex          # Terminate session
+ccb restore codex       # Attach to running session
+ccb update              # Update to latest version
 ```
 
 > `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.  
@@ -183,7 +183,7 @@ claude_bridge update              # Update to latest version
 
 - **⚡ 响应更快** — 优化了发送/接收延迟，显著快于 MCP
 - **🐛 macOS 修复** — 修复了会话恢复和各种登录问题
-- **🔄 一键更新** — 运行 `claude_bridge update` 即可更新，无需重新拉取安装
+- **🔄 一键更新** — 运行 `ccb update` 即可更新，无需重新拉取安装
 
 > 发现 bug？在项目目录运行 `claude` 调试，然后将 `git diff` 发给作者更新到主分支！
 
@@ -200,7 +200,7 @@ claude_bridge update              # Update to latest version
 </div>
 
 <div align="center">
-  <a href="https://github.com/bfly123/claude_bridge/releases/tag/2.0">完整演示视频（GitHub Release）</a>
+  <a href="https://github.com/bfly123/claude_code_bridge/releases/tag/2.0">完整演示视频（GitHub Release）</a>
 </div>
 
 ---
@@ -209,7 +209,7 @@ claude_bridge update              # Update to latest version
 
 传统 MCP 调用把 Codex 当作**无状态执行器**——Claude 每次都要传递完整上下文。
 
-**claude_bridge** 建立**持久通道** 轻量级发送和抓取信息， AI间各自维护独立上下文。
+**ccb (Claude Code Bridge)** 建立**持久通道** 轻量级发送和抓取信息， AI间各自维护独立上下文。
 
 ### 分工协作
 
@@ -218,7 +218,7 @@ claude_bridge update              # Update to latest version
 | **Claude Code** | 需求分析、架构规划、代码重构 |
 | **Codex** | 算法实现、bug 定位、代码审查 |
 | **Gemini** | 研究、多角度分析、验证 |
-| **claude_bridge** | 会话管理、上下文隔离、通信桥接 |
+| **ccb** | 会话管理、上下文隔离、通信桥接 |
 
 ### 官方 MCP vs 持久双窗口
 
@@ -252,8 +252,8 @@ MCP 方式：
 ## 安装
 
 ```bash
-git clone https://github.com/bfly123/claude_bridge.git
-cd claude_bridge
+git clone https://github.com/bfly123/claude_code_bridge.git
+cd claude_code_bridge
 ./install.sh install
 ```
 
@@ -263,20 +263,20 @@ cd claude_bridge
 ## 启动
 
 ```bash
-claude_bridge up codex            # 启动 Codex
-claude_bridge up gemini           # 启动 Gemini
-claude_bridge up codex gemini     # 同时启动
-claude_bridge up codex -r         # 恢复上次会话
-claude_bridge up codex -a         # 最高权限模式
+ccb up codex            # 启动 Codex
+ccb up gemini           # 启动 Gemini
+ccb up codex gemini     # 同时启动
+ccb up codex -r         # 恢复上次会话
+ccb up codex -a         # 最高权限模式
 ```
 
 ### 会话管理
 
 ```bash
-claude_bridge status              # 检查后端状态
-claude_bridge kill codex          # 终止会话
-claude_bridge restore codex       # 连接到运行中的会话
-claude_bridge update              # 更新到最新版本
+ccb status              # 检查后端状态
+ccb kill codex          # 终止会话
+ccb restore codex       # 连接到运行中的会话
+ccb update              # 更新到最新版本
 ```
 
 > `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。  

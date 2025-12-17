@@ -46,7 +46,7 @@ def _load_session() -> Optional[dict]:
 def _resolve_session() -> Tuple[dict, str]:
     data = _load_session()
     if not data:
-        raise RuntimeError("❌ 未找到 Codex 会话，请先运行 claude_bridge")
+        raise RuntimeError("❌ 未找到 Codex 会话，请先运行 ccb up codex")
     pane_id = get_pane_id_from_session(data)
     if not pane_id:
         raise RuntimeError("❌ 会话配置无效")
@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
             raise RuntimeError("❌ 无法初始化终端后端")
         if not backend.is_alive(pane_id):
             terminal = data.get("terminal", "tmux")
-            raise RuntimeError(f"❌ {terminal} 会话不存在: {pane_id}\n提示: 请确认 claude_bridge 正在运行")
+            raise RuntimeError(f"❌ {terminal} 会话不存在: {pane_id}\n提示: 请确认 ccb 正在运行")
         backend.send_text(pane_id, raw_command)
         print(f"✅ 已发送到 Codex ({pane_id})")
         return 0

@@ -15,7 +15,7 @@ SCRIPTS_TO_LINK=(
   bin/gask-w
   bin/gpend
   bin/gping
-  claude_bridge
+  ccb
 )
 
 CLAUDE_MARKDOWN=(
@@ -38,6 +38,7 @@ LEGACY_SCRIPTS=(
   claude-codex-dual
   claude_codex
   claude_ai
+  claude_bridge
 )
 
 usage() {

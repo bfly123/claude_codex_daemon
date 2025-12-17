@@ -236,7 +236,7 @@ class CodexCommunicator:
     def __init__(self):
         self.session_info = self._load_session_info()
         if not self.session_info:
-            raise RuntimeError("❌ 未找到活跃的Codex会话，请先运行 claude_codex")
+            raise RuntimeError("❌ 未找到活跃的Codex会话，请先运行 ccb up codex")
 
         self.session_id = self.session_info["session_id"]
         self.runtime_dir = Path(self.session_info["runtime_dir"])
@@ -256,7 +256,7 @@ class CodexCommunicator:
 
         healthy, msg = self._check_session_health()
         if not healthy:
-            raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 claude_codex 启动新会话")
+            raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 ccb up codex 启动新会话")
 
     def _load_session_info(self):
         if "CODEX_SESSION_ID" in os.environ:
