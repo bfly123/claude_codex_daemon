@@ -1,19 +1,37 @@
 <div align="center">
 
-# Claude-Bridge v1.0
+# Claude-Bridge v2.0 alpha
 
-**Persistent multi-AI collaboration: Claude + Codex + Gemini**
+**🌍 Cross-Platform Multi-AI Collaboration: Claude + Codex + Gemini**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)]()
+**Windows | macOS | Linux — One Tool, All Platforms**
+
+[![Version](https://img.shields.io/badge/version-2.0_alpha-orange.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL2-lightgrey.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 
 [English](#english) | [中文](#中文)
 
-<img src="assets/figure.png" alt="Dual-pane diagram" width="600">
+<video width="600" controls>
+  <source src="assets/video.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 </div>
+
+---
+
+## 🎉 What's New in v2.0
+
+> **🪟 Full Windows Support via [WezTerm](https://wezfurlong.org/wezterm/)**
+> WezTerm is now the recommended terminal for all platforms. It's a powerful, cross-platform terminal with native split-pane support. Linux/macOS users: give it a try! tmux remains supported.
+
+- **⚡ Faster Response** — Optimized send/receive latency, significantly faster than MCP
+- **🐛 macOS Fixes** — Fixed session resume and various login issues
+- **🔄 Easy Updates** — Run `claude_bridge update` instead of re-cloning
+
+> Found a bug? Run `claude` in the project directory to debug, then share your `git diff` with the maintainer!
 
 ---
 
@@ -98,7 +116,7 @@ claude_bridge update              # Update to latest version
 ```
 
 > `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.  
-> `-r` resumes sessions: Claude via `claude --resume` (`~/.claude/projects/`), Codex via `codex resume` (`~/.codex/sessions/`), Gemini via `gemini --resume` (`~/.gemini/tmp/`).
+> `-r` resumes based on local dotfiles in the current directory (`.claude-session`, `.codex-session`, `.gemini-session`); delete them to reset.
 
 ## Usage Examples
 
@@ -170,6 +188,19 @@ claude_bridge update              # Update to latest version
 ---
 
 # 中文
+
+## 🎉 v2.0 新特性
+
+> **🪟 全面支持 Windows — 通过 [WezTerm](https://wezfurlong.org/wezterm/)**
+> WezTerm 现已成为所有平台的推荐终端。它是一个强大的跨平台终端，原生支持分屏。Linux/macOS 用户也推荐试试！tmux 仍然支持。
+
+- **⚡ 响应更快** — 优化了发送/接收延迟，显著快于 MCP
+- **🐛 macOS 修复** — 修复了会话恢复和各种登录问题
+- **🔄 便捷更新** — 运行 `claude_bridge update` 即可更新，无需重新拉取安装
+
+> 发现 bug？在项目目录运行 `claude` 调试，然后将 `git diff` 发给作者更新到主分支！
+
+---
 
 ## 为什么需要这个项目？
 
@@ -251,7 +282,7 @@ claude_bridge update              # 更新到最新版本
 ```
 
 > `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。  
-> `-r` 会恢复会话：Claude 使用 `claude --resume`（`~/.claude/projects/`），Codex 使用 `codex resume`（`~/.codex/sessions/`），Gemini 使用 `gemini --resume`（`~/.gemini/tmp/`）。
+> `-r` 基于当前目录下的本地文件恢复（`.claude-session/.codex-session/.gemini-session`）；删除这些文件即可重置。
 
 ## 使用示例
 

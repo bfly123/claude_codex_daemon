@@ -28,11 +28,17 @@ class TmuxBackend(TerminalBackend):
         sanitized = text.replace("\r", "").strip()
         if not sanitized:
             return
+        # Fast-path for typical short, single-line commands (fewer tmux subprocess calls).
+        if "\n" not in sanitized and len(sanitized) <= 200:
+            subprocess.run(["tmux", "send-keys", "-t", session, "-l", sanitized], check=True)
+            subprocess.run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
+            return
+
         buffer_name = f"tb-{os.getpid()}-{int(time.time() * 1000)}"
         encoded = (sanitized + "\n").encode("utf-8")
         subprocess.run(["tmux", "load-buffer", "-b", buffer_name, "-"], input=encoded, check=True)
         subprocess.run(["tmux", "paste-buffer", "-t", session, "-b", buffer_name, "-p"], check=True)
-        time.sleep(0.05)
+        time.sleep(0.02)
         subprocess.run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
         subprocess.run(["tmux", "delete-buffer", "-b", buffer_name], stderr=subprocess.DEVNULL)
 
@@ -90,7 +96,7 @@ class WeztermBackend(TerminalBackend):
             check=True,
         )
         # 给 TUI 一点时间退出“粘贴/突发输入”路径，再发送 Enter 更像真实按键
-        time.sleep(0.03)
+        time.sleep(0.01)
         try:
             subprocess.run(
                 [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],

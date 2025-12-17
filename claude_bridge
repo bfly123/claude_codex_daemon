@@ -99,8 +99,15 @@ class AILauncher:
                 f"read -r _; "
                 f"exit $code"
             )
-        direction = "right" if provider == "codex" or not self.wezterm_panes else "bottom"
-        parent_pane = self.wezterm_panes.get("codex") if provider == "gemini" and self.wezterm_panes else None
+        # Layout: first backend splits to the right of current pane, subsequent backends stack below
+        # the first backend pane to form a right-side column (top/bottom).
+        direction = "right" if not self.wezterm_panes else "bottom"
+        parent_pane = None
+        if direction == "bottom":
+            try:
+                parent_pane = next(iter(self.wezterm_panes.values()))
+            except StopIteration:
+                parent_pane = None
 
         backend = WeztermBackend()
         pane_id = backend.create_pane(start_cmd, str(Path.cwd()), direction=direction, percent=50, parent_pane=parent_pane)
@@ -136,12 +143,51 @@ class AILauncher:
                 result.append(candidate)
         return result
 
+    def _read_json_file(self, path: Path) -> dict:
+        try:
+            if not path.exists():
+                return {}
+            data = json.loads(path.read_text())
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _write_json_file(self, path: Path, data: dict) -> None:
+        try:
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        except Exception:
+            pass
+
+    def _claude_session_file(self) -> Path:
+        return Path.cwd() / ".claude-session"
+
+    def _read_local_claude_session_id(self) -> str | None:
+        data = self._read_json_file(self._claude_session_file())
+        sid = data.get("claude_session_id") or data.get("session_id")
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+        return None
+
+    def _write_local_claude_session(self, session_id: str, active: bool = True) -> None:
+        path = self._claude_session_file()
+        data = self._read_json_file(path)
+        data.update(
+            {
+                "claude_session_id": session_id,
+                "work_dir": str(Path.cwd()),
+                "active": bool(active),
+                "started_at": data.get("started_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
+                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+        self._write_json_file(path, data)
+
     def _get_latest_codex_session_id(self) -> tuple[str | None, bool]:
         """
         Returns (session_id, has_any_history_for_cwd).
         Session id is Codex CLI's UUID used by `codex resume <id>`.
         """
-        # Prefer cached value recorded by our bridge tools.
+        # Only trust local project state; deleting local dotfiles should reset resume behavior.
         project_session = Path.cwd() / ".codex-session"
         if project_session.exists():
             try:
@@ -151,41 +197,7 @@ class AILauncher:
                     return cached, True
             except Exception:
                 pass
-
-        root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
-        if not root.exists():
-            return None, False
-
-        work_dirs = set(self._work_dir_strings(Path.cwd()))
-        try:
-            logs = sorted((p for p in root.glob("**/*.jsonl") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
-        except OSError:
-            return None, False
-
-        has_history = False
-        for log_path in logs[:400]:
-            try:
-                with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
-                    first = handle.readline().strip()
-            except OSError:
-                continue
-            if not first:
-                continue
-            try:
-                entry = json.loads(first)
-            except Exception:
-                continue
-            if not isinstance(entry, dict) or entry.get("type") != "session_meta":
-                continue
-            payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
-            cwd = payload.get("cwd")
-            if not isinstance(cwd, str) or cwd not in work_dirs:
-                continue
-            has_history = True
-            session_id = payload.get("id")
-            if isinstance(session_id, str) and session_id:
-                return session_id, True
-        return None, has_history
+        return None, False
 
     def _build_codex_start_cmd(self) -> str:
         cmd = "codex -c disable_paste_burst=true --full-auto" if self.auto else "codex -c disable_paste_burst=true"
@@ -195,10 +207,6 @@ class AILauncher:
             if session_id:
                 cmd = f"{cmd} resume {session_id}"
                 print(f"🔁 Resuming Codex session: {session_id[:8]}...")
-                codex_resumed = True
-            elif has_history:
-                cmd = f"{cmd} resume --last"
-                print("🔁 Resuming Codex session (--last)...")
                 codex_resumed = True
 
             if not codex_resumed:
@@ -210,19 +218,20 @@ class AILauncher:
         Returns (project_hash, has_any_history_for_cwd).
         Gemini CLI stores sessions under ~/.gemini/tmp/<sha256(cwd)>/chats/.
         """
-        gemini_root = Path.home() / ".gemini" / "tmp"
-        if not gemini_root.exists():
+        # Only trust local project state; deleting local dotfiles should reset resume behavior.
+        project_session = Path.cwd() / ".gemini-session"
+        if not project_session.exists():
             return None, False
-
-        import hashlib
-
-        candidates = self._work_dir_strings(Path.cwd())
-        for candidate in candidates:
-            project_hash = hashlib.sha256(candidate.encode()).hexdigest()
-            chats_dir = gemini_root / project_hash / "chats"
-            if chats_dir.exists() and any(chats_dir.glob("session-*.json")):
-                return project_hash, True
-        return None, False
+        try:
+            data = json.loads(project_session.read_text())
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            return None, True
+        project_hash = data.get("gemini_project_hash")
+        if isinstance(project_hash, str) and project_hash.strip():
+            return project_hash.strip(), True
+        return None, True
 
     def _build_gemini_start_cmd(self) -> str:
         cmd = "gemini --yolo" if self.auto else "gemini"
@@ -234,6 +243,43 @@ class AILauncher:
             else:
                 print("ℹ️ No Gemini history found, starting fresh")
         return cmd
+
+    def _warmup_provider(self, provider: str, timeout: float = 8.0) -> bool:
+        if provider == "codex":
+            ping_script = self.script_dir / "bin" / "cping"
+        elif provider == "gemini":
+            ping_script = self.script_dir / "bin" / "gping"
+        else:
+            return False
+
+        if not ping_script.exists():
+            return False
+
+        print(f"🔧 Warmup: {ping_script.name}")
+        deadline = time.time() + timeout
+        last_result: subprocess.CompletedProcess[str] | None = None
+        sleep_s = 0.3
+        while time.time() < deadline:
+            last_result = subprocess.run(
+                [sys.executable, str(ping_script)],
+                cwd=str(Path.cwd()),
+                capture_output=True,
+                text=True,
+            )
+            if last_result.returncode == 0:
+                out = (last_result.stdout or "").strip()
+                if out:
+                    print(out)
+                return True
+            time.sleep(sleep_s)
+            sleep_s = min(1.0, sleep_s * 1.5)
+
+        if last_result:
+            out = ((last_result.stdout or "") + "\n" + (last_result.stderr or "")).strip()
+            if out:
+                print(out)
+        print(f"⚠️ Warmup failed: {provider}")
+        return False
 
     def _get_start_cmd(self, provider: str) -> str:
         if provider == "codex":
@@ -304,11 +350,7 @@ exec tmux attach -t "$TMUX_SESSION"
 
         terminal = self._detect_terminal()
         if terminal == "tmux":
-            if platform.system() == "Darwin":
-                # macOS: 直接执行 wrapper.sh，避免 launcher 嵌套导致权限交互失败
-                os.execv("/bin/bash", ["/bin/bash", str(script_file)])
-            else:
-                subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
+            subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
         else:
             subprocess.Popen([terminal, "-e", str(script_file)])
 
@@ -431,10 +473,17 @@ exec tmux attach -t "$TMUX_SESSION"
         if not session_files:
             return None, False
 
+        session_env_root = Path.home() / ".claude" / "session-env"
+
         uuid_sessions: list[Path] = []
         for session_file in session_files:
             try:
                 uuid.UUID(session_file.stem)
+                # Ignore zero-byte placeholders and sessions Claude cannot actually resume.
+                if session_file.stat().st_size <= 0:
+                    continue
+                if not (session_env_root / session_file.stem).exists():
+                    continue
                 uuid_sessions.append(session_file)
             except Exception:
                 continue
@@ -474,16 +523,22 @@ exec tmux attach -t "$TMUX_SESSION"
         cmd = ["claude"]
         if self.auto:
             cmd.append("--dangerously-skip-permissions")
+        local_session_id: str | None = None
         if self.resume:
-            session_id, has_history = self._get_latest_claude_session_id()
-            if session_id:
-                cmd.extend(["--resume", session_id])
-                print(f"🔁 Resuming Claude session: {session_id[:8]}...")
-            elif has_history:
-                cmd.append("--resume")
-                print("🔁 Resuming Claude session (picker)...")
+            local_session_id = self._read_local_claude_session_id()
+            # Only resume if Claude can actually find the session on disk.
+            if local_session_id and (Path.home() / ".claude" / "session-env" / local_session_id).exists():
+                cmd.extend(["--resume", local_session_id])
+                print(f"🔁 Resuming Claude session: {local_session_id[:8]}...")
             else:
-                print("ℹ️ No Claude history found, starting fresh")
+                local_session_id = None
+                print("ℹ️ No local Claude session found, starting fresh")
+
+        # Always start Claude with an explicit session id when not resuming, so the id is local and resettable.
+        if not local_session_id:
+            new_id = str(uuid.uuid4())
+            cmd.extend(["--session-id", new_id])
+            self._write_local_claude_session(new_id, active=True)
 
         print(f"📋 会话ID: {self.session_id}")
         print(f"📁 运行目录: {self.runtime_dir}")
@@ -519,7 +574,7 @@ exec tmux attach -t "$TMUX_SESSION"
                 subprocess.run(["tmux", "kill-session", "-t", tmux_session], stderr=subprocess.DEVNULL)
                 subprocess.run(["tmux", "kill-session", "-t", f"launcher-{tmux_session}"], stderr=subprocess.DEVNULL)
 
-        for session_file in [Path.cwd() / ".codex-session", Path.cwd() / ".gemini-session"]:
+        for session_file in [Path.cwd() / ".codex-session", Path.cwd() / ".gemini-session", Path.cwd() / ".claude-session"]:
             if session_file.exists():
                 try:
                     data = json.loads(session_file.read_text())
@@ -545,10 +600,17 @@ exec tmux attach -t "$TMUX_SESSION"
         signal.signal(signal.SIGINT, lambda s, f: (self.cleanup(), sys.exit(0)))
         signal.signal(signal.SIGTERM, lambda s, f: (self.cleanup(), sys.exit(0)))
 
-        for provider in self.providers:
+        providers = list(self.providers)
+        if self.terminal_type == "wezterm":
+            # Stable layout: codex on top, gemini on bottom (when both are present).
+            order = {"codex": 0, "gemini": 1}
+            providers.sort(key=lambda p: order.get(p, 99))
+
+        for provider in providers:
             if not self._start_provider(provider):
                 return 1
             time.sleep(1)
+            self._warmup_provider(provider)
 
         time.sleep(2)
 
@@ -772,8 +834,14 @@ def cmd_update(args):
     import shutil
     import urllib.request
     import tarfile
+    import tempfile
 
-    install_dir = Path.home() / ".local/share/codex-dual"
+    # Prefer the directory where this script resides (installed copy), then fall back to env/default.
+    script_root = Path(__file__).resolve().parent
+    default_install_dir = Path.home() / ".local/share/codex-dual"
+    install_dir = Path(os.environ.get("CODEX_INSTALL_PREFIX") or default_install_dir).expanduser()
+    if (script_root / "install.sh").exists():
+        install_dir = script_root
     repo_url = "https://github.com/bfly123/claude_bridge"
 
     print("🔄 Checking for updates...")
@@ -797,7 +865,7 @@ def cmd_update(args):
 
     # Method 2: Download tarball
     tarball_url = f"{repo_url}/archive/refs/heads/main.tar.gz"
-    tmp_dir = Path("/tmp/claude_bridge_update")
+    tmp_dir = Path(tempfile.gettempdir()) / "claude_bridge_update"
 
     try:
         print(f"📥 Downloading latest version...")
@@ -809,15 +877,26 @@ def cmd_update(args):
         urllib.request.urlretrieve(tarball_url, tarball_path)
 
         print("📂 Extracting...")
+        def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
+            dest = dest.resolve()
+            for member in tar.getmembers():
+                member_path = (dest / member.name).resolve()
+                if not str(member_path).startswith(str(dest) + os.sep):
+                    raise RuntimeError(f"Unsafe tar member path: {member.name}")
+            tar.extractall(dest)
+
         with tarfile.open(tarball_path, "r:gz") as tar:
-            tar.extractall(tmp_dir)
+            _safe_extract(tar, tmp_dir)
 
         extracted_dir = tmp_dir / "claude_bridge-main"
 
         print("🔧 Installing...")
-        subprocess.run([str(extracted_dir / "install.sh"), "install"], check=True)
+        env = os.environ.copy()
+        env["CODEX_INSTALL_PREFIX"] = str(install_dir)
+        subprocess.run([str(extracted_dir / "install.sh"), "install"], check=True, env=env)
 
         print("✅ Update complete!")
+        print("💡 推荐：安装 WezTerm 作为终端前端（分屏/滚动体验更好），详情见 README。")
         return 0
 
     except Exception as e:

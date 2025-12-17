@@ -6,7 +6,6 @@ gask-w - 同步发送消息到 Gemini 并等待回复
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -28,27 +27,8 @@ def main(argv: list[str]) -> int:
 
     try:
         comm = GeminiCommunicator()
-        state = comm.log_reader.capture_state()
-
-        print(f"🔔 发送到 Gemini: {message[:50]}{'...' if len(message) > 50 else ''}")
-        comm._send_via_terminal(message)
-
-        print("⏳ 等待 Gemini 回复...")
-        start_time = time.time()
-        last_hint = 0
-
-        while True:
-            reply, new_state = comm.log_reader.wait_for_message(state, timeout=1.0)
-            if reply:
-                print("\n🤖 Gemini 回复:")
-                print(reply)
-                return 0
-            state = new_state if new_state else state
-
-            elapsed = int(time.time() - start_time)
-            if elapsed >= last_hint + 30:
-                last_hint = elapsed
-                print(f"⏳ 仍在等待 Gemini 回复... ({elapsed}s)")
+        reply = comm.ask_sync(message, timeout=0)
+        return 0 if reply else 1
 
     except Exception as exc:
         print(f"❌ {exc}", file=sys.stderr)

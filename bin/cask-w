@@ -4,7 +4,6 @@ cask-w - 同步发送消息到 Codex 并等待回复
 """
 from __future__ import annotations
 import sys
-import time
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -12,61 +11,22 @@ lib_dir = script_dir.parent / "lib"
 sys.path.insert(0, str(lib_dir))
 
 from codex_comm import CodexCommunicator
-from terminal import get_backend_for_session, get_pane_id_from_session
-
-import importlib.util
-import importlib.machinery
-
-
-def _usage() -> None:
-    print("用法: cask-w <消息>", file=sys.stderr)
-
-
-def _load_cask_module():
-    cask_path = script_dir / "cask"
-    spec = importlib.util.spec_from_loader("cask", importlib.machinery.SourceFileLoader("cask", str(cask_path)))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def main(argv: list[str]) -> int:
     if len(argv) <= 1:
-        _usage()
+        print("用法: cask-w <消息>", file=sys.stderr)
         return 1
 
     message = " ".join(argv[1:]).strip()
     if not message:
-        _usage()
+        print("❌ 消息内容不能为空", file=sys.stderr)
         return 1
 
     try:
-        cask = _load_cask_module()
-        data, pane_id = cask._resolve_session()
-        backend = get_backend_for_session(data)
-
-        if not backend or not backend.is_alive(pane_id):
-            raise RuntimeError("❌ Codex 会话不存在")
-
         comm = CodexCommunicator()
-        state = comm.log_reader.capture_state()
-
-        backend.send_text(pane_id, message)
-        print("⏳ 等待 Codex 回复...")
-
-        start = time.time()
-        last_hint = 0
-        while True:
-            reply, new_state = comm.log_reader.wait_for_message(state, timeout=1.0)
-            if reply:
-                print("\n🤖 Codex 回复:")
-                print(reply)
-                return 0
-            state = new_state or state
-            elapsed = int(time.time() - start)
-            if elapsed >= last_hint + 30:
-                last_hint = elapsed
-                print(f"⏳ 仍在等待... ({elapsed}s)")
+        reply = comm.ask_sync(message, timeout=0)
+        return 0 if reply else 1
 
     except Exception as exc:
         print(exc, file=sys.stderr)

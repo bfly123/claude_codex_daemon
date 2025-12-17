@@ -332,6 +332,11 @@ with open('$claude_md', 'w', encoding='utf-8') as f:
 ## Codex Collaboration Rules
 Codex is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Codex:
 
+Fast path (minimize latency):
+- If the user message starts with any of: `调取codex`, `@codex`, `codex:`, `codex：`, `问codex`, `让codex` then immediately run:
+  - `cask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like cping)
+- If user message is only the prefix (no content), ask a 1-line clarification for what to send.
+
 Trigger conditions (any match):
 - User mentions codex/Codex with questioning/requesting tone
 - User wants codex to do something, give advice, or help review
@@ -351,6 +356,11 @@ Examples:
 
 ## Gemini Collaboration Rules
 Gemini is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Gemini:
+
+Fast path (minimize latency):
+- If the user message starts with any of: `调取gemini`, `@gemini`, `gemini:`, `gemini：`, `问gemini`, `让gemini` then immediately run:
+  - `gask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like gping)
+- If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
 - User mentions gemini/Gemini with questioning/requesting tone
@@ -443,6 +453,15 @@ install_requirements() {
   check_wsl_compatibility
   require_command python3 python3
   require_tmux
+  if ! command -v wezterm >/dev/null 2>&1 && ! command -v wezterm.exe >/dev/null 2>&1; then
+    echo
+    echo "================================================================"
+    echo "⚠️ 建议安装 WezTerm 作为终端前端（体验更好，推荐 WSL2/Windows 用户）"
+    echo "   - 官网: https://wezfurlong.org/wezterm/"
+    echo "   - 优势: 更顺滑的分屏/滚动/字体渲染，WezTerm 模式下桥接更稳定"
+    echo "================================================================"
+    echo
+  fi
 }
 
 install_all() {

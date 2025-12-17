@@ -39,6 +39,18 @@ class GeminiLogReader:
         forced_hash = os.environ.get("GEMINI_PROJECT_HASH", "").strip()
         self._project_hash = forced_hash or _get_project_hash(self.work_dir)
         self._preferred_session: Optional[Path] = None
+        try:
+            poll = float(os.environ.get("GEMINI_POLL_INTERVAL", "0.05"))
+        except Exception:
+            poll = 0.05
+        self._poll_interval = min(0.5, max(0.02, poll))
+        # Some filesystems only update mtime at 1s granularity. When waiting for a reply,
+        # force a read periodically to avoid missing in-place updates that keep size/mtime unchanged.
+        try:
+            force = float(os.environ.get("GEMINI_FORCE_READ_INTERVAL", "1.0"))
+        except Exception:
+            force = 1.0
+        self._force_read_interval = min(5.0, max(0.2, force))
 
     def _chats_dir(self) -> Optional[Path]:
         chats = self.root / self._project_hash / "chats"
@@ -109,6 +121,7 @@ class GeminiLogReader:
         session = self._latest_session()
         msg_count = 0
         mtime = 0.0
+        mtime_ns = 0
         size = 0
         last_gemini_id: Optional[str] = None
         last_gemini_hash: Optional[str] = None
@@ -116,6 +129,7 @@ class GeminiLogReader:
             try:
                 stat = session.stat()
                 mtime = stat.st_mtime
+                mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
                 size = stat.st_size
                 with session.open("r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -130,6 +144,7 @@ class GeminiLogReader:
             "session_path": session,
             "msg_count": msg_count,
             "mtime": mtime,
+            "mtime_ns": mtime_ns,
             "size": size,
             "last_gemini_id": last_gemini_id,
             "last_gemini_hash": last_gemini_hash,
@@ -163,6 +178,9 @@ class GeminiLogReader:
         deadline = time.time() + timeout
         prev_count = state.get("msg_count", 0)
         prev_mtime = state.get("mtime", 0.0)
+        prev_mtime_ns = state.get("mtime_ns")
+        if prev_mtime_ns is None:
+            prev_mtime_ns = int(float(prev_mtime) * 1_000_000_000)
         prev_size = state.get("size", 0)
         prev_session = state.get("session_path")
         prev_last_gemini_id = state.get("last_gemini_id")
@@ -170,6 +188,7 @@ class GeminiLogReader:
         # 允许短 timeout 场景下也能扫描到新 session 文件（gask-w 默认 1s/次）
         rescan_interval = min(2.0, max(0.2, timeout / 2.0))
         last_rescan = time.time()
+        last_forced_read = time.time()
 
         while True:
             # 定期重新扫描，检测是否有新会话文件
@@ -197,7 +216,7 @@ class GeminiLogReader:
                         "last_gemini_id": prev_last_gemini_id,
                         "last_gemini_hash": prev_last_gemini_hash,
                     }
-                time.sleep(0.2)
+                time.sleep(self._poll_interval)
                 if time.time() >= deadline:
                     return None, state
                 continue
@@ -205,24 +224,29 @@ class GeminiLogReader:
             try:
                 stat = session.stat()
                 current_mtime = stat.st_mtime
+                current_mtime_ns = getattr(stat, "st_mtime_ns", int(current_mtime * 1_000_000_000))
                 current_size = stat.st_size
                 # Windows/WSL 场景下文件 mtime 可能是秒级精度，单靠 mtime 会漏掉快速写入的更新；
                 # 因此同时用文件大小作为变化信号。
-                if block and current_mtime <= prev_mtime and current_size == prev_size:
-                    time.sleep(0.2)
-                    if time.time() >= deadline:
-                        return None, {
-                            "session_path": session,
-                            "msg_count": prev_count,
-                            "mtime": prev_mtime,
-                            "size": prev_size,
-                            "last_gemini_id": prev_last_gemini_id,
-                            "last_gemini_hash": prev_last_gemini_hash,
-                        }
-                    continue
+                if block and current_mtime_ns <= prev_mtime_ns and current_size == prev_size:
+                    if time.time() - last_forced_read < self._force_read_interval:
+                        time.sleep(self._poll_interval)
+                        if time.time() >= deadline:
+                            return None, {
+                                "session_path": session,
+                                "msg_count": prev_count,
+                                "mtime": prev_mtime,
+                                "mtime_ns": prev_mtime_ns,
+                                "size": prev_size,
+                                "last_gemini_id": prev_last_gemini_id,
+                                "last_gemini_hash": prev_last_gemini_hash,
+                            }
+                        continue
+                    # fallthrough: forced read
 
                 with session.open("r", encoding="utf-8") as f:
                     data = json.load(f)
+                last_forced_read = time.time()
                 messages = data.get("messages", [])
                 current_count = len(messages)
 
@@ -235,6 +259,7 @@ class GeminiLogReader:
                                     "session_path": session,
                                     "msg_count": current_count,
                                     "mtime": current_mtime,
+                                    "mtime_ns": current_mtime_ns,
                                     "size": current_size,
                                     "last_gemini_id": msg.get("id"),
                                     "last_gemini_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
@@ -252,6 +277,7 @@ class GeminiLogReader:
                                     "session_path": session,
                                     "msg_count": current_count,
                                     "mtime": current_mtime,
+                                    "mtime_ns": current_mtime_ns,
                                     "size": current_size,
                                     "last_gemini_id": last_id,
                                     "last_gemini_hash": current_hash,
@@ -259,6 +285,7 @@ class GeminiLogReader:
                                 return content, new_state
 
                 prev_mtime = current_mtime
+                prev_mtime_ns = current_mtime_ns
                 prev_count = current_count
                 prev_size = current_size
                 last = self._extract_last_gemini(data)
@@ -274,17 +301,19 @@ class GeminiLogReader:
                     "session_path": session,
                     "msg_count": prev_count,
                     "mtime": prev_mtime,
+                    "mtime_ns": prev_mtime_ns,
                     "size": prev_size,
                     "last_gemini_id": prev_last_gemini_id,
                     "last_gemini_hash": prev_last_gemini_hash,
                 }
 
-            time.sleep(0.2)
+            time.sleep(self._poll_interval)
             if time.time() >= deadline:
                 return None, {
                     "session_path": session,
                     "msg_count": prev_count,
                     "mtime": prev_mtime,
+                    "mtime_ns": prev_mtime_ns,
                     "size": prev_size,
                     "last_gemini_id": prev_last_gemini_id,
                     "last_gemini_hash": prev_last_gemini_hash,
@@ -374,12 +403,15 @@ class GeminiCommunicator:
             return None
 
     def _check_session_health(self) -> Tuple[bool, str]:
+        return self._check_session_health_impl(probe_terminal=True)
+
+    def _check_session_health_impl(self, probe_terminal: bool) -> Tuple[bool, str]:
         try:
             if not self.runtime_dir.exists():
                 return False, "运行时目录不存在"
             if not self.pane_id:
                 return False, "未找到会话 ID"
-            if self.backend and not self.backend.is_alive(self.pane_id):
+            if probe_terminal and self.backend and not self.backend.is_alive(self.pane_id):
                 return False, f"{self.terminal} 会话 {self.pane_id} 不存在"
             return True, "会话正常"
         except Exception as exc:
@@ -393,7 +425,7 @@ class GeminiCommunicator:
 
     def ask_async(self, question: str) -> bool:
         try:
-            healthy, status = self._check_session_health()
+            healthy, status = self._check_session_health_impl(probe_terminal=False)
             if not healthy:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
@@ -407,18 +439,37 @@ class GeminiCommunicator:
 
     def ask_sync(self, question: str, timeout: Optional[int] = None) -> Optional[str]:
         try:
-            healthy, status = self._check_session_health()
+            healthy, status = self._check_session_health_impl(probe_terminal=False)
             if not healthy:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
-            state = self.log_reader.capture_state()
             print("🔔 发送问题到 Gemini...")
             self._send_via_terminal(question)
+            # Capture state after sending to reduce "question → send" latency.
+            state = self.log_reader.capture_state()
 
-            wait_timeout = timeout or self.timeout
+            wait_timeout = self.timeout if timeout is None else int(timeout)
+            if wait_timeout == 0:
+                print("⏳ 等待 Gemini 回复 (无超时，Ctrl-C 可中断)...")
+                start_time = time.time()
+                last_hint = 0
+                while True:
+                    message, new_state = self.log_reader.wait_for_message(state, timeout=30.0)
+                    state = new_state if new_state else state
+                    session_path = (new_state or {}).get("session_path") if isinstance(new_state, dict) else None
+                    if isinstance(session_path, Path):
+                        self._remember_gemini_session(session_path)
+                    if message:
+                        print("🤖 Gemini 回复:")
+                        print(message)
+                        return message
+                    elapsed = int(time.time() - start_time)
+                    if elapsed >= last_hint + 30:
+                        last_hint = elapsed
+                        print(f"⏳ 仍在等待... ({elapsed}s)")
+
             print(f"⏳ 等待 Gemini 回复 (超时 {wait_timeout} 秒)...")
-
-            message, new_state = self.log_reader.wait_for_message(state, wait_timeout)
+            message, new_state = self.log_reader.wait_for_message(state, float(wait_timeout))
             session_path = (new_state or {}).get("session_path") if isinstance(new_state, dict) else None
             if isinstance(session_path, Path):
                 self._remember_gemini_session(session_path)

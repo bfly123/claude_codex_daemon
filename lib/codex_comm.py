@@ -31,6 +31,11 @@ class CodexLogReader:
         self.root = Path(root).expanduser()
         self._preferred_log = self._normalize_path(log_path)
         self._session_id_filter = session_id_filter
+        try:
+            poll = float(os.environ.get("CODEX_POLL_INTERVAL", "0.05"))
+        except Exception:
+            poll = 0.05
+        self._poll_interval = min(0.5, max(0.01, poll))
 
     def set_preferred_log(self, log_path: Optional[Path]) -> None:
         self._preferred_log = self._normalize_path(log_path)
@@ -49,21 +54,23 @@ class CodexLogReader:
         if not self.root.exists():
             return None
         try:
-            logs = sorted(
-                (p for p in self.root.glob("**/*.jsonl") if p.is_file()),
-                key=lambda p: p.stat().st_mtime,
-            )
+            # Avoid sorting the full list (can be slow on large histories / slow filesystems).
+            latest: Optional[Path] = None
+            latest_mtime = -1.0
+            for p in (p for p in self.root.glob("**/*.jsonl") if p.is_file()):
+                try:
+                    if self._session_id_filter and self._session_id_filter not in p.name:
+                        continue
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime >= latest_mtime:
+                    latest = p
+                    latest_mtime = mtime
         except OSError:
             return None
 
-        # 按 session_id 过滤
-        if self._session_id_filter:
-            for log in reversed(logs):
-                if self._session_id_filter in log.name:
-                    return log
-            return None
-
-        return logs[-1] if logs else None
+        return latest
 
     def _latest_log(self) -> Optional[Path]:
         preferred = self._preferred_log
@@ -134,6 +141,9 @@ class CodexLogReader:
         deadline = time.time() + timeout
         current_path = self._normalize_path(state.get("log_path"))
         offset = state.get("offset", 0)
+        # Keep rescans infrequent; new messages usually append to the same log file.
+        rescan_interval = min(2.0, max(0.2, timeout / 2.0))
+        last_rescan = time.time()
 
         def ensure_log() -> Path:
             candidates = [
@@ -155,7 +165,7 @@ class CodexLogReader:
             except FileNotFoundError:
                 if not block:
                     return None, {"log_path": None, "offset": 0}
-                time.sleep(0.1)
+                time.sleep(self._poll_interval)
                 continue
 
             with log_path.open("r", encoding="utf-8", errors="ignore") as fh:
@@ -178,23 +188,26 @@ class CodexLogReader:
                     if message is not None:
                         return message, {"log_path": log_path, "offset": offset}
 
-            latest = self._scan_latest()
-            if latest and latest != log_path:
-                current_path = latest
-                self._preferred_log = latest
-                try:
-                    offset = latest.stat().st_size
-                except OSError:
-                    offset = 0
-                if not block:
-                    return None, {"log_path": current_path, "offset": offset}
-                time.sleep(0.05)
-                continue
+            if time.time() - last_rescan >= rescan_interval:
+                latest = self._scan_latest()
+                if latest and latest != log_path:
+                    current_path = latest
+                    self._preferred_log = latest
+                    try:
+                        offset = latest.stat().st_size
+                    except OSError:
+                        offset = 0
+                    if not block:
+                        return None, {"log_path": current_path, "offset": offset}
+                    time.sleep(0.05)
+                    last_rescan = time.time()
+                    continue
+                last_rescan = time.time()
 
             if not block:
                 return None, {"log_path": log_path, "offset": offset}
 
-            time.sleep(0.1)
+            time.sleep(self._poll_interval)
             if time.time() >= deadline:
                 return None, {"log_path": log_path, "offset": offset}
 
@@ -290,6 +303,9 @@ class CodexCommunicator:
         self._remember_codex_session(log_hint)
 
     def _check_session_health(self):
+        return self._check_session_health_impl(probe_terminal=True)
+
+    def _check_session_health_impl(self, probe_terminal: bool):
         try:
             if not self.runtime_dir.exists():
                 return False, "运行时目录不存在"
@@ -299,7 +315,7 @@ class CodexCommunicator:
             if self.terminal == "wezterm":
                 if not self.pane_id:
                     return False, "未找到 WezTerm pane_id"
-                if not self.backend or not self.backend.is_alive(self.pane_id):
+                if probe_terminal and (not self.backend or not self.backend.is_alive(self.pane_id)):
                     return False, f"WezTerm pane 不存在: {self.pane_id}"
                 return True, "会话正常"
 
@@ -352,7 +368,7 @@ class CodexCommunicator:
 
     def ask_async(self, question: str) -> bool:
         try:
-            healthy, status = self._check_session_health()
+            healthy, status = self._check_session_health_impl(probe_terminal=False)
             if not healthy:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
@@ -368,16 +384,35 @@ class CodexCommunicator:
 
     def ask_sync(self, question: str, timeout: Optional[int] = None) -> Optional[str]:
         try:
-            healthy, status = self._check_session_health()
+            healthy, status = self._check_session_health_impl(probe_terminal=False)
             if not healthy:
                 raise RuntimeError(f"❌ 会话异常: {status}")
 
             print("🔔 发送问题到Codex...")
             marker, state = self._send_message(question)
-            wait_timeout = timeout or self.timeout
-            print(f"⏳ 等待Codex回复 (超时 {wait_timeout} 秒)...")
+            wait_timeout = self.timeout if timeout is None else int(timeout)
+            if wait_timeout == 0:
+                print("⏳ 等待 Codex 回复 (无超时，Ctrl-C 可中断)...")
+                start_time = time.time()
+                last_hint = 0
+                while True:
+                    message, new_state = self.log_reader.wait_for_message(state, timeout=30.0)
+                    state = new_state or state
+                    log_hint = (new_state or {}).get("log_path") if isinstance(new_state, dict) else None
+                    if not log_hint:
+                        log_hint = self.log_reader.current_log_path()
+                    self._remember_codex_session(log_hint)
+                    if message:
+                        print("🤖 Codex回复:")
+                        print(message)
+                        return message
+                    elapsed = int(time.time() - start_time)
+                    if elapsed >= last_hint + 30:
+                        last_hint = elapsed
+                        print(f"⏳ 仍在等待... ({elapsed}s)")
 
-            message, new_state = self.log_reader.wait_for_message(state, wait_timeout)
+            print(f"⏳ 等待Codex回复 (超时 {wait_timeout} 秒)...")
+            message, new_state = self.log_reader.wait_for_message(state, float(wait_timeout))
             log_hint = (new_state or {}).get("log_path") if isinstance(new_state, dict) else None
             if not log_hint:
                 log_hint = self.log_reader.current_log_path()
