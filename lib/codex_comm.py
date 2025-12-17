@@ -17,7 +17,7 @@ from typing import Optional, Tuple, Dict, Any
 
 from terminal import get_backend_for_session, get_pane_id_from_session
 
-SESSION_ROOT = Path.home() / ".codex" / "sessions"
+SESSION_ROOT = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
 SESSION_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,

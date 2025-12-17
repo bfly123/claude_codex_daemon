@@ -97,7 +97,8 @@ claude_bridge restore codex       # Attach to running session
 claude_bridge update              # Update to latest version
 ```
 
-> `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.
+> `-a` enables `--dangerously-skip-permissions` for Claude and `--full-auto` for Codex.  
+> `-r` resumes sessions: Claude via `claude --resume` (`~/.claude/projects/`), Codex via `codex resume` (`~/.codex/sessions/`), Gemini via `gemini --resume` (`~/.gemini/tmp/`).
 
 ## Usage Examples
 
@@ -151,7 +152,14 @@ claude_bridge update              # Update to latest version
 ## Requirements
 
 - Python 3.8+
-- tmux (`brew install tmux` / `apt install tmux`)
+- tmux or WezTerm (at least one)
+
+### Windows (WezTerm + WSL2) Notes
+
+- Recommended: run `claude_bridge`, `claude`, and `codex` inside **WSL2**, and use **WezTerm** as the terminal UI.
+- If `wezterm.exe` isn't in WSL `$PATH`, set `CODEX_WEZTERM_BIN` (e.g. `export CODEX_WEZTERM_BIN=wezterm.exe`).
+- If Codex runs on Windows but scripts run in WSL, set `CODEX_SESSION_ROOT` to the Windows Codex sessions dir (WSL path, e.g. `/mnt/c/Users/<you>/.codex/sessions`).
+- If Gemini runs on Windows but scripts run in WSL, set `GEMINI_ROOT` to the Windows Gemini tmp dir (WSL path, e.g. `/mnt/c/Users/<you>/.gemini/tmp`).
 
 ## Uninstall
 
@@ -221,6 +229,7 @@ cd claude_bridge
 
 - 🧩 如果安装遇到问题，可以在安装目录里打开 `claude`，让它帮你一起调试。部分环境（尤其是 macOS、WSL2 等）开发者没有充分测试，但一般 Claude 都能引导你把环境跑起来。
 - 🖱️ 如果在 `tmux` 里无法用滚轮/触控板滑动查看对话，可以开启鼠标模式：`tmux set -g mouse on`（否则可能无法查看历史对话）。
+- 🪟 Windows 推荐使用 **WezTerm + WSL2**：工具与 `codex/claude` 都跑在 WSL2 里，WezTerm 负责分屏与显示。
 
 ## 启动
 
@@ -241,7 +250,8 @@ claude_bridge restore codex       # 连接到运行中的会话
 claude_bridge update              # 更新到最新版本
 ```
 
-> `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。
+> `-a` 为 Claude 启用 `--dangerously-skip-permissions`，Codex 启用 `--full-auto`。  
+> `-r` 会恢复会话：Claude 使用 `claude --resume`（`~/.claude/projects/`），Codex 使用 `codex resume`（`~/.codex/sessions/`），Gemini 使用 `gemini --resume`（`~/.gemini/tmp/`）。
 
 ## 使用示例
 
@@ -295,7 +305,14 @@ claude_bridge update              # 更新到最新版本
 ## 依赖
 
 - Python 3.8+
-- tmux（`brew install tmux` / `apt install tmux`）
+- tmux 或 WezTerm（至少安装一个）
+
+### Windows（WezTerm + WSL2）建议
+
+- 推荐：`claude_bridge/claude/codex` 都安装在 **WSL2**，WezTerm 仅作为前端分屏终端。
+- WSL 里找不到 `wezterm.exe` 时，设置 `CODEX_WEZTERM_BIN`（例如 `export CODEX_WEZTERM_BIN=wezterm.exe` 或填写完整路径）。
+- 若 Codex 跑在 Windows、脚本跑在 WSL，需要设置 `CODEX_SESSION_ROOT=/mnt/c/Users/<你>/.codex/sessions` 让 `cask-w/cpend` 能读到日志。
+- 若 Gemini 跑在 Windows、脚本跑在 WSL，需要设置 `GEMINI_ROOT=/mnt/c/Users/<你>/.gemini/tmp` 让 `gask-w/gpend` 能读到日志。
 
 ## 卸载
 

@@ -158,7 +158,14 @@ print_tmux_install_hint() {
 }
 
 require_tmux() {
-  if command -v wezterm >/dev/null 2>&1; then
+  local wezterm_override="${CODEX_WEZTERM_BIN:-${WEZTERM_BIN:-}}"
+  if [[ -n "${wezterm_override}" ]]; then
+    if command -v "${wezterm_override}" >/dev/null 2>&1 || [[ -f "${wezterm_override}" ]]; then
+      echo "✓ 检测到 WezTerm (${wezterm_override})"
+      return
+    fi
+  fi
+  if command -v wezterm >/dev/null 2>&1 || command -v wezterm.exe >/dev/null 2>&1; then
     echo "✓ 检测到 WezTerm"
     return
   fi

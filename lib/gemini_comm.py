@@ -15,13 +15,19 @@ from typing import Optional, Tuple, Dict, Any
 
 from terminal import get_backend_for_session, get_pane_id_from_session
 
-GEMINI_ROOT = Path.home() / ".gemini" / "tmp"
+GEMINI_ROOT = Path(os.environ.get("GEMINI_ROOT") or (Path.home() / ".gemini" / "tmp")).expanduser()
 
 
 def _get_project_hash(work_dir: Optional[Path] = None) -> str:
-    """计算项目目录的哈希值（与 gemini-cli 一致）"""
+    """计算项目目录的哈希值（与 gemini-cli 的 Storage.getFilePathHash 一致）"""
     path = work_dir or Path.cwd()
-    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()
+    # gemini-cli 使用的是 Node.js 的 path.resolve()（不会 realpath 解析符号链接），
+    # 因此这里使用 absolute() 而不是 resolve()，避免在 WSL/Windows 场景下 hash 不一致。
+    try:
+        normalized = str(path.expanduser().absolute())
+    except Exception:
+        normalized = str(path)
+    return hashlib.sha256(normalized.encode()).hexdigest()
 
 
 class GeminiLogReader:
@@ -30,25 +36,45 @@ class GeminiLogReader:
     def __init__(self, root: Path = GEMINI_ROOT, work_dir: Optional[Path] = None):
         self.root = Path(root).expanduser()
         self.work_dir = work_dir or Path.cwd()
-        self._project_hash = _get_project_hash(self.work_dir)
+        forced_hash = os.environ.get("GEMINI_PROJECT_HASH", "").strip()
+        self._project_hash = forced_hash or _get_project_hash(self.work_dir)
         self._preferred_session: Optional[Path] = None
 
     def _chats_dir(self) -> Optional[Path]:
         chats = self.root / self._project_hash / "chats"
         return chats if chats.exists() else None
 
-    def _scan_latest_session(self) -> Optional[Path]:
-        chats = self._chats_dir()
-        if not chats:
+    def _scan_latest_session_any_project(self) -> Optional[Path]:
+        """在所有 projectHash 下扫描最新 session 文件（用于 Windows/WSL 路径哈希不一致的兜底）"""
+        if not self.root.exists():
             return None
         try:
             sessions = sorted(
-                (p for p in chats.glob("session-*.json") if p.is_file() and not p.name.startswith(".")),
+                (p for p in self.root.glob("*/chats/session-*.json") if p.is_file() and not p.name.startswith(".")),
                 key=lambda p: p.stat().st_mtime,
             )
         except OSError:
             return None
         return sessions[-1] if sessions else None
+
+    def _scan_latest_session(self) -> Optional[Path]:
+        chats = self._chats_dir()
+        try:
+            if chats:
+                sessions = sorted(
+                    (p for p in chats.glob("session-*.json") if p.is_file() and not p.name.startswith(".")),
+                    key=lambda p: p.stat().st_mtime,
+                )
+            else:
+                sessions = []
+        except OSError:
+            sessions = []
+
+        if sessions:
+            return sessions[-1]
+
+        # fallback: projectHash 可能因路径规范化差异（Windows/WSL、符号链接等）而不匹配
+        return self._scan_latest_session_any_project()
 
     def _latest_session(self) -> Optional[Path]:
         if self._preferred_session and self._preferred_session.exists():
@@ -56,7 +82,24 @@ class GeminiLogReader:
         latest = self._scan_latest_session()
         if latest:
             self._preferred_session = latest
+            try:
+                # 若是 fallback 扫描到的 session，则反向绑定 projectHash，后续避免全量扫描
+                project_hash = latest.parent.parent.name
+                if project_hash:
+                    self._project_hash = project_hash
+            except Exception:
+                pass
         return latest
+
+    def set_preferred_session(self, session_path: Optional[Path]) -> None:
+        if not session_path:
+            return
+        try:
+            candidate = session_path if isinstance(session_path, Path) else Path(str(session_path)).expanduser()
+        except Exception:
+            return
+        if candidate.exists():
+            self._preferred_session = candidate
 
     def current_session_path(self) -> Optional[Path]:
         return self._latest_session()
@@ -66,15 +109,31 @@ class GeminiLogReader:
         session = self._latest_session()
         msg_count = 0
         mtime = 0.0
+        size = 0
+        last_gemini_id: Optional[str] = None
+        last_gemini_hash: Optional[str] = None
         if session and session.exists():
             try:
-                mtime = session.stat().st_mtime
+                stat = session.stat()
+                mtime = stat.st_mtime
+                size = stat.st_size
                 with session.open("r", encoding="utf-8") as f:
                     data = json.load(f)
                 msg_count = len(data.get("messages", []))
+                last = self._extract_last_gemini(data)
+                if last:
+                    last_gemini_id, content = last
+                    last_gemini_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
             except (OSError, json.JSONDecodeError):
                 pass
-        return {"session_path": session, "msg_count": msg_count, "mtime": mtime}
+        return {
+            "session_path": session,
+            "msg_count": msg_count,
+            "mtime": mtime,
+            "size": size,
+            "last_gemini_id": last_gemini_id,
+            "last_gemini_hash": last_gemini_hash,
+        }
 
     def wait_for_message(self, state: Dict[str, Any], timeout: float) -> Tuple[Optional[str], Dict[str, Any]]:
         """阻塞等待新的 Gemini 回复"""
@@ -104,8 +163,12 @@ class GeminiLogReader:
         deadline = time.time() + timeout
         prev_count = state.get("msg_count", 0)
         prev_mtime = state.get("mtime", 0.0)
+        prev_size = state.get("size", 0)
         prev_session = state.get("session_path")
-        rescan_interval = 2.0
+        prev_last_gemini_id = state.get("last_gemini_id")
+        prev_last_gemini_hash = state.get("last_gemini_hash")
+        # 允许短 timeout 场景下也能扫描到新 session 文件（gask-w 默认 1s/次）
+        rescan_interval = min(2.0, max(0.2, timeout / 2.0))
         last_rescan = time.time()
 
         while True:
@@ -118,23 +181,44 @@ class GeminiLogReader:
                     if latest != prev_session:
                         prev_count = 0
                         prev_mtime = 0.0
+                        prev_size = 0
+                        prev_last_gemini_id = None
+                        prev_last_gemini_hash = None
                 last_rescan = time.time()
 
             session = self._latest_session()
             if not session or not session.exists():
                 if not block:
-                    return None, {"session_path": None, "msg_count": 0, "mtime": 0.0}
+                    return None, {
+                        "session_path": None,
+                        "msg_count": 0,
+                        "mtime": 0.0,
+                        "size": 0,
+                        "last_gemini_id": prev_last_gemini_id,
+                        "last_gemini_hash": prev_last_gemini_hash,
+                    }
                 time.sleep(0.2)
                 if time.time() >= deadline:
                     return None, state
                 continue
 
             try:
-                current_mtime = session.stat().st_mtime
-                if current_mtime <= prev_mtime and block:
+                stat = session.stat()
+                current_mtime = stat.st_mtime
+                current_size = stat.st_size
+                # Windows/WSL 场景下文件 mtime 可能是秒级精度，单靠 mtime 会漏掉快速写入的更新；
+                # 因此同时用文件大小作为变化信号。
+                if block and current_mtime <= prev_mtime and current_size == prev_size:
                     time.sleep(0.2)
                     if time.time() >= deadline:
-                        return None, {"session_path": session, "msg_count": prev_count, "mtime": prev_mtime}
+                        return None, {
+                            "session_path": session,
+                            "msg_count": prev_count,
+                            "mtime": prev_mtime,
+                            "size": prev_size,
+                            "last_gemini_id": prev_last_gemini_id,
+                            "last_gemini_hash": prev_last_gemini_hash,
+                        }
                     continue
 
                 with session.open("r", encoding="utf-8") as f:
@@ -147,21 +231,80 @@ class GeminiLogReader:
                         if msg.get("type") == "gemini":
                             content = msg.get("content", "").strip()
                             if content:
-                                new_state = {"session_path": session, "msg_count": current_count, "mtime": current_mtime}
+                                new_state = {
+                                    "session_path": session,
+                                    "msg_count": current_count,
+                                    "mtime": current_mtime,
+                                    "size": current_size,
+                                    "last_gemini_id": msg.get("id"),
+                                    "last_gemini_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                                }
+                                return content, new_state
+                else:
+                    # 有些版本会先写入空的 gemini 消息，再“原地更新 content”，消息数不变。
+                    last = self._extract_last_gemini(data)
+                    if last:
+                        last_id, content = last
+                        if content:
+                            current_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                            if last_id != prev_last_gemini_id or current_hash != prev_last_gemini_hash:
+                                new_state = {
+                                    "session_path": session,
+                                    "msg_count": current_count,
+                                    "mtime": current_mtime,
+                                    "size": current_size,
+                                    "last_gemini_id": last_id,
+                                    "last_gemini_hash": current_hash,
+                                }
                                 return content, new_state
 
                 prev_mtime = current_mtime
                 prev_count = current_count
+                prev_size = current_size
+                last = self._extract_last_gemini(data)
+                if last:
+                    prev_last_gemini_id, content = last
+                    prev_last_gemini_hash = hashlib.sha256(content.encode("utf-8")).hexdigest() if content else prev_last_gemini_hash
 
             except (OSError, json.JSONDecodeError):
                 pass
 
             if not block:
-                return None, {"session_path": session, "msg_count": prev_count, "mtime": prev_mtime}
+                return None, {
+                    "session_path": session,
+                    "msg_count": prev_count,
+                    "mtime": prev_mtime,
+                    "size": prev_size,
+                    "last_gemini_id": prev_last_gemini_id,
+                    "last_gemini_hash": prev_last_gemini_hash,
+                }
 
             time.sleep(0.2)
             if time.time() >= deadline:
-                return None, {"session_path": session, "msg_count": prev_count, "mtime": prev_mtime}
+                return None, {
+                    "session_path": session,
+                    "msg_count": prev_count,
+                    "mtime": prev_mtime,
+                    "size": prev_size,
+                    "last_gemini_id": prev_last_gemini_id,
+                    "last_gemini_hash": prev_last_gemini_hash,
+                }
+
+    @staticmethod
+    def _extract_last_gemini(payload: dict) -> Optional[Tuple[Optional[str], str]]:
+        messages = payload.get("messages", []) if isinstance(payload, dict) else []
+        if not isinstance(messages, list):
+            return None
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("type") != "gemini":
+                continue
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            return msg.get("id"), content.strip()
+        return None
 
 
 class GeminiCommunicator:
@@ -177,13 +320,26 @@ class GeminiCommunicator:
         self.terminal = self.session_info.get("terminal", "tmux")
         self.pane_id = get_pane_id_from_session(self.session_info)
         self.timeout = int(os.environ.get("GEMINI_SYNC_TIMEOUT", "60"))
-        self.log_reader = GeminiLogReader()
+        work_dir_hint = self.session_info.get("work_dir")
+        log_work_dir = Path(work_dir_hint) if isinstance(work_dir_hint, str) and work_dir_hint else None
+        self.log_reader = GeminiLogReader(work_dir=log_work_dir)
+        preferred_session = self.session_info.get("gemini_session_path") or self.session_info.get("session_path")
+        if preferred_session:
+            self.log_reader.set_preferred_session(Path(str(preferred_session)))
         self.project_session_file = self.session_info.get("_session_file")
         self.backend = get_backend_for_session(self.session_info)
 
         healthy, msg = self._check_session_health()
         if not healthy:
             raise RuntimeError(f"❌ 会话不健康: {msg}\n提示: 请运行 claude_bridge up gemini")
+
+        self._prime_log_binding()
+
+    def _prime_log_binding(self) -> None:
+        session_path = self.log_reader.current_session_path()
+        if not session_path:
+            return
+        self._remember_gemini_session(session_path)
 
     def _load_session_info(self):
         if "GEMINI_SESSION_ID" in os.environ:
@@ -262,7 +418,10 @@ class GeminiCommunicator:
             wait_timeout = timeout or self.timeout
             print(f"⏳ 等待 Gemini 回复 (超时 {wait_timeout} 秒)...")
 
-            message, _ = self.log_reader.wait_for_message(state, wait_timeout)
+            message, new_state = self.log_reader.wait_for_message(state, wait_timeout)
+            session_path = (new_state or {}).get("session_path") if isinstance(new_state, dict) else None
+            if isinstance(session_path, Path):
+                self._remember_gemini_session(session_path)
             if message:
                 print("🤖 Gemini 回复:")
                 print(message)
@@ -275,6 +434,9 @@ class GeminiCommunicator:
             return None
 
     def consume_pending(self, display: bool = True):
+        session_path = self.log_reader.current_session_path()
+        if isinstance(session_path, Path):
+            self._remember_gemini_session(session_path)
         message = self.log_reader.latest_message()
         if not message:
             if display:
@@ -283,6 +445,59 @@ class GeminiCommunicator:
         if display:
             print(message)
         return message
+
+    def _remember_gemini_session(self, session_path: Path) -> None:
+        if not session_path or not self.project_session_file:
+            return
+        project_file = Path(self.project_session_file)
+        if not project_file.exists():
+            return
+
+        try:
+            with project_file.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            return
+
+        updated = False
+        session_path_str = str(session_path)
+        if data.get("gemini_session_path") != session_path_str:
+            data["gemini_session_path"] = session_path_str
+            updated = True
+
+        try:
+            project_hash = session_path.parent.parent.name
+        except Exception:
+            project_hash = ""
+        if project_hash and data.get("gemini_project_hash") != project_hash:
+            data["gemini_project_hash"] = project_hash
+            updated = True
+
+        session_id = ""
+        try:
+            payload = json.loads(session_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("sessionId"), str):
+                session_id = payload["sessionId"]
+        except Exception:
+            session_id = ""
+        if session_id and data.get("gemini_session_id") != session_id:
+            data["gemini_session_id"] = session_id
+            updated = True
+
+        if not updated:
+            return
+
+        tmp_file = project_file.with_suffix(".tmp")
+        try:
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, project_file)
+        except Exception:
+            try:
+                if tmp_file.exists():
+                    tmp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def ping(self, display: bool = True) -> Tuple[bool, str]:
         healthy, status = self._check_session_health()

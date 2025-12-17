@@ -16,6 +16,8 @@ import argparse
 import uuid
 import getpass
 import platform
+import tempfile
+import re
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -38,7 +40,7 @@ class AILauncher:
         self.no_claude = no_claude
         self.script_dir = Path(__file__).resolve().parent
         self.session_id = f"ai-{int(time.time())}-{os.getpid()}"
-        self.temp_base = Path("/tmp")
+        self.temp_base = Path(tempfile.gettempdir())
         self.runtime_dir = self.temp_base / f"claude-ai-{getpass.getuser()}" / self.session_id
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._cleaned = False
@@ -87,6 +89,16 @@ class AILauncher:
         runtime.mkdir(parents=True, exist_ok=True)
 
         start_cmd = self._get_start_cmd(provider)
+        # WezTerm 分屏里，进程退出会导致 pane 直接关闭；默认保持 pane 打开便于查看退出信息。
+        keep_open = os.environ.get("CODEX_WEZTERM_KEEP_OPEN", "1").lower() not in {"0", "false", "no", "off"}
+        if keep_open:
+            start_cmd = (
+                f"{start_cmd}; "
+                f"code=$?; "
+                f'echo; echo \"[{provider}] exited with code $code. Press Enter to close...\"; '
+                f"read -r _; "
+                f"exit $code"
+            )
         direction = "right" if provider == "codex" or not self.wezterm_panes else "bottom"
         parent_pane = self.wezterm_panes.get("codex") if provider == "gemini" and self.wezterm_panes else None
 
@@ -97,10 +109,7 @@ class AILauncher:
         if provider == "codex":
             input_fifo = runtime / "input.fifo"
             output_fifo = runtime / "output.fifo"
-            if not input_fifo.exists():
-                os.mkfifo(input_fifo, 0o600)
-            if not output_fifo.exists():
-                os.mkfifo(output_fifo, 0o644)
+            # WezTerm 模式通过 pane 注入文本，不强依赖 FIFO；Windows/WSL 场景也不一定支持 mkfifo。
             self._write_codex_session(runtime, None, input_fifo, output_fifo, pane_id=pane_id)
         else:
             self._write_gemini_session(runtime, None, pane_id=pane_id)
@@ -108,33 +117,131 @@ class AILauncher:
         print(f"✅ {provider.capitalize()} 已启动 (wezterm pane: {pane_id})")
         return True
 
+    def _work_dir_strings(self, work_dir: Path) -> list[str]:
+        candidates: list[str] = []
+        env_pwd = os.environ.get("PWD")
+        if env_pwd:
+            candidates.append(env_pwd)
+        candidates.append(str(work_dir))
+        try:
+            candidates.append(str(work_dir.resolve()))
+        except Exception:
+            pass
+        # de-dup while preserving order
+        seen: set[str] = set()
+        result: list[str] = []
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                result.append(candidate)
+        return result
+
+    def _get_latest_codex_session_id(self) -> tuple[str | None, bool]:
+        """
+        Returns (session_id, has_any_history_for_cwd).
+        Session id is Codex CLI's UUID used by `codex resume <id>`.
+        """
+        # Prefer cached value recorded by our bridge tools.
+        project_session = Path.cwd() / ".codex-session"
+        if project_session.exists():
+            try:
+                data = json.loads(project_session.read_text())
+                cached = data.get("codex_session_id")
+                if isinstance(cached, str) and cached:
+                    return cached, True
+            except Exception:
+                pass
+
+        root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
+        if not root.exists():
+            return None, False
+
+        work_dirs = set(self._work_dir_strings(Path.cwd()))
+        try:
+            logs = sorted((p for p in root.glob("**/*.jsonl") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+        except OSError:
+            return None, False
+
+        has_history = False
+        for log_path in logs[:400]:
+            try:
+                with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    first = handle.readline().strip()
+            except OSError:
+                continue
+            if not first:
+                continue
+            try:
+                entry = json.loads(first)
+            except Exception:
+                continue
+            if not isinstance(entry, dict) or entry.get("type") != "session_meta":
+                continue
+            payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+            cwd = payload.get("cwd")
+            if not isinstance(cwd, str) or cwd not in work_dirs:
+                continue
+            has_history = True
+            session_id = payload.get("id")
+            if isinstance(session_id, str) and session_id:
+                return session_id, True
+        return None, has_history
+
+    def _build_codex_start_cmd(self) -> str:
+        cmd = "codex -c disable_paste_burst=true --full-auto" if self.auto else "codex -c disable_paste_burst=true"
+        codex_resumed = False
+        if self.resume:
+            session_id, has_history = self._get_latest_codex_session_id()
+            if session_id:
+                cmd = f"{cmd} resume {session_id}"
+                print(f"🔁 Resuming Codex session: {session_id[:8]}...")
+                codex_resumed = True
+            elif has_history:
+                cmd = f"{cmd} resume --last"
+                print("🔁 Resuming Codex session (--last)...")
+                codex_resumed = True
+
+            if not codex_resumed:
+                print("ℹ️ No Codex history found, starting fresh")
+        return cmd
+
+    def _get_latest_gemini_project_hash(self) -> tuple[str | None, bool]:
+        """
+        Returns (project_hash, has_any_history_for_cwd).
+        Gemini CLI stores sessions under ~/.gemini/tmp/<sha256(cwd)>/chats/.
+        """
+        gemini_root = Path.home() / ".gemini" / "tmp"
+        if not gemini_root.exists():
+            return None, False
+
+        import hashlib
+
+        candidates = self._work_dir_strings(Path.cwd())
+        for candidate in candidates:
+            project_hash = hashlib.sha256(candidate.encode()).hexdigest()
+            chats_dir = gemini_root / project_hash / "chats"
+            if chats_dir.exists() and any(chats_dir.glob("session-*.json")):
+                return project_hash, True
+        return None, False
+
+    def _build_gemini_start_cmd(self) -> str:
+        cmd = "gemini --yolo" if self.auto else "gemini"
+        if self.resume:
+            _, has_history = self._get_latest_gemini_project_hash()
+            if has_history:
+                cmd = f"{cmd} --resume latest"
+                print("🔁 Resuming Gemini session...")
+            else:
+                print("ℹ️ No Gemini history found, starting fresh")
+        return cmd
+
     def _get_start_cmd(self, provider: str) -> str:
         if provider == "codex":
-            cmd = "codex --full-auto" if self.auto else "codex"
-            if self.resume:
-                session_file = Path.cwd() / ".codex-session"
-                if session_file.exists():
-                    try:
-                        data = json.loads(session_file.read_text())
-                        session_id = data.get("codex_session_id")
-                        if session_id:
-                            cmd = f"codex {'--full-auto ' if self.auto else ''}resume {session_id}"
-                            print(f"🔁 Resuming Codex session: {session_id[:8]}...")
-                    except Exception:
-                        pass
-            return cmd
+            # NOTE: Codex TUI 有 paste-burst 检测；终端注入（wezterm send-text/tmux paste-buffer）
+            # 往往会被识别为“粘贴”，导致回车仅换行不提交。默认关闭该检测，保证自动通信可用。
+            return self._build_codex_start_cmd()
         elif provider == "gemini":
-            cmd = "gemini"
-            if self.resume:
-                import hashlib
-                project_hash = hashlib.sha256(str(Path.cwd().resolve()).encode()).hexdigest()
-                gemini_chats = Path.home() / ".gemini" / "tmp" / project_hash / "chats"
-                if gemini_chats.exists() and any(gemini_chats.glob("session-*.json")):
-                    cmd = "gemini -r latest"
-                    print("🔁 Resuming Gemini session...")
-            if self.auto:
-                cmd = cmd.replace("gemini", "gemini --yolo", 1)
-            return cmd
+            return self._build_gemini_start_cmd()
         return ""
 
     def _start_codex(self, tmux_session: str) -> bool:
@@ -149,22 +256,7 @@ class AILauncher:
         if not output_fifo.exists():
             os.mkfifo(output_fifo, 0o644)
 
-        start_cmd = "codex --full-auto" if self.auto else "codex"
-        codex_resumed = False
-        if self.resume:
-            session_file = Path.cwd() / ".codex-session"
-            if session_file.exists():
-                try:
-                    data = json.loads(session_file.read_text())
-                    session_id = data.get("codex_session_id")
-                    if session_id:
-                        start_cmd = f"codex {'--full-auto ' if self.auto else ''}resume {session_id}"
-                        print(f"🔁 Resuming Codex session: {session_id[:8]}...")
-                        codex_resumed = True
-                except Exception:
-                    pass
-            if not codex_resumed:
-                print("ℹ️ No Codex history found, starting fresh")
+        start_cmd = self._build_codex_start_cmd()
 
         bridge_script = self.script_dir / "lib" / "codex_dual_bridge.py"
         wrapper = f'''#!/bin/bash
@@ -227,55 +319,21 @@ exec tmux attach -t "$TMUX_SESSION"
         runtime = self.runtime_dir / "gemini"
         runtime.mkdir(parents=True, exist_ok=True)
 
-        start_cmd = "gemini"
-        gemini_resumed = False
-        if self.resume:
-            # Check if Gemini has history in ~/.gemini/tmp/<hash>/chats/
-            import hashlib
-            project_hash = hashlib.sha256(str(Path.cwd().resolve()).encode()).hexdigest()
-            gemini_chats = Path.home() / ".gemini" / "tmp" / project_hash / "chats"
-            if gemini_chats.exists() and any(gemini_chats.glob("session-*.json")):
-                start_cmd = "gemini -r latest"
-                print("🔁 Resuming Gemini session...")
-                gemini_resumed = True
-            else:
-                print("ℹ️ No Gemini history found, starting fresh")
-        if self.auto:
-            start_cmd = start_cmd.replace("gemini", "gemini --yolo", 1)
+        start_cmd = self._build_gemini_start_cmd()
 
-        wrapper = f'''#!/bin/bash
-RUNTIME_DIR="{runtime}"
-TMUX_SESSION="{tmux_session}"
-WORK_DIR="{os.getcwd()}"
-
-echo $$ > "$RUNTIME_DIR/gemini.pid"
-export GEMINI_RUNTIME_DIR="$RUNTIME_DIR"
-export GEMINI_TMUX_SESSION="$TMUX_SESSION"
-
-GEMINI_START_CMD={json.dumps(start_cmd)}
-
-cd "$WORK_DIR"
-if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$TMUX_SESSION" "$GEMINI_START_CMD"
-    sleep 1
-fi
-
-exec tmux attach -t "$TMUX_SESSION"
-'''
         script_file = runtime / "wrapper.sh"
-        script_file.write_text(wrapper)
-        os.chmod(script_file, 0o755)
 
         self._write_gemini_session(runtime, tmux_session)
 
         # 创建启动脚本
         wrapper = f'''#!/bin/bash
-cd "{os.getcwd()}"
-tmux new-session -d -s "{tmux_session}" 2>/dev/null || true
-tmux send-keys -t "{tmux_session}" "{start_cmd}" Enter
-exec tmux attach -t "{tmux_session}"
-'''
+	cd "{os.getcwd()}"
+	tmux new-session -d -s "{tmux_session}" 2>/dev/null || true
+	tmux send-keys -t "{tmux_session}" "{start_cmd}" Enter
+	exec tmux attach -t "{tmux_session}"
+	'''
         script_file.write_text(wrapper)
+        os.chmod(script_file, 0o755)
 
         terminal = self._detect_terminal()
         if terminal == "tmux":
@@ -328,6 +386,65 @@ exec tmux attach -t "{tmux_session}"
         }
         session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
+    def _claude_project_dir(self, work_dir: Path) -> Path:
+        projects_root = Path.home() / ".claude" / "projects"
+        # Claude Code uses a filesystem-friendly key derived from the working directory.
+        # To handle symlinked paths (PWD) vs physical paths (resolve()), try multiple candidates.
+        candidates: list[Path] = []
+        env_pwd = os.environ.get("PWD")
+        if env_pwd:
+            try:
+                candidates.append(Path(env_pwd))
+            except Exception:
+                pass
+        candidates.extend([work_dir])
+        try:
+            candidates.append(work_dir.resolve())
+        except Exception:
+            pass
+
+        for candidate in candidates:
+            key = re.sub(r"[^A-Za-z0-9]", "-", str(candidate))
+            project_dir = projects_root / key
+            if project_dir.exists():
+                return project_dir
+
+        # Fallback to a best-effort key even if the directory doesn't exist yet.
+        try:
+            fallback_path = work_dir.resolve()
+        except Exception:
+            fallback_path = work_dir
+        key = re.sub(r"[^A-Za-z0-9]", "-", str(fallback_path))
+        return projects_root / key
+
+    def _get_latest_claude_session_id(self) -> tuple[str | None, bool]:
+        """
+        Returns (session_id, has_any_history).
+        - session_id: latest UUID-like session id if found (for `claude --resume <id>`).
+        - has_any_history: whether this project has any Claude sessions on disk.
+        """
+        project_dir = self._claude_project_dir(Path.cwd())
+        if not project_dir.exists():
+            return None, False
+
+        session_files = list(project_dir.glob("*.jsonl"))
+        if not session_files:
+            return None, False
+
+        uuid_sessions: list[Path] = []
+        for session_file in session_files:
+            try:
+                uuid.UUID(session_file.stem)
+                uuid_sessions.append(session_file)
+            except Exception:
+                continue
+
+        if not uuid_sessions:
+            return None, True
+
+        latest = max(uuid_sessions, key=lambda p: p.stat().st_mtime)
+        return latest.stem, True
+
     def _start_claude(self) -> int:
         print("🚀 启动 Claude...")
 
@@ -358,11 +475,13 @@ exec tmux attach -t "{tmux_session}"
         if self.auto:
             cmd.append("--dangerously-skip-permissions")
         if self.resume:
-            # Check if Claude has conversation history in current directory
-            claude_history = Path.cwd() / ".claude" / "conversation.json"
-            if claude_history.exists():
-                cmd.append("-c")
-                print("🔁 Resuming Claude session...")
+            session_id, has_history = self._get_latest_claude_session_id()
+            if session_id:
+                cmd.extend(["--resume", session_id])
+                print(f"🔁 Resuming Claude session: {session_id[:8]}...")
+            elif has_history:
+                cmd.append("--resume")
+                print("🔁 Resuming Claude session (picker)...")
             else:
                 print("ℹ️ No Claude history found, starting fresh")
 
@@ -570,10 +689,72 @@ def cmd_restore(args):
                     return 0
 
             if not active:
-                session_id = data.get("codex_session_id") if provider == "codex" else None
-                if session_id:
+                has_history = False
+                session_id = None
+                if provider == "codex":
+                    session_id = data.get("codex_session_id")
+                    if isinstance(session_id, str) and session_id:
+                        has_history = True
+                    else:
+                        # Fallback: scan ~/.codex/sessions for latest session bound to this cwd.
+                        root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
+                        work_dirs = set([os.environ.get("PWD", ""), str(Path.cwd())])
+                        try:
+                            work_dirs.add(str(Path.cwd().resolve()))
+                        except Exception:
+                            pass
+                        try:
+                            logs = sorted(
+                                (p for p in root.glob("**/*.jsonl") if p.is_file()),
+                                key=lambda p: p.stat().st_mtime,
+                                reverse=True,
+                            )
+                        except Exception:
+                            logs = []
+                        for log_path in logs[:400]:
+                            try:
+                                with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                                    first = handle.readline().strip()
+                            except OSError:
+                                continue
+                            if not first:
+                                continue
+                            try:
+                                entry = json.loads(first)
+                            except Exception:
+                                continue
+                            if not isinstance(entry, dict) or entry.get("type") != "session_meta":
+                                continue
+                            payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+                            cwd = payload.get("cwd")
+                            if isinstance(cwd, str) and cwd in work_dirs:
+                                has_history = True
+                                sid = payload.get("id")
+                                if isinstance(sid, str) and sid:
+                                    session_id = sid
+                                    break
+                elif provider == "gemini":
+                    gemini_root = Path.home() / ".gemini" / "tmp"
+                    if gemini_root.exists():
+                        import hashlib
+                        candidates = [os.environ.get("PWD", ""), str(Path.cwd())]
+                        try:
+                            candidates.append(str(Path.cwd().resolve()))
+                        except Exception:
+                            pass
+                        for candidate in candidates:
+                            if not candidate:
+                                continue
+                            project_hash = hashlib.sha256(candidate.encode()).hexdigest()
+                            chats_dir = gemini_root / project_hash / "chats"
+                            if chats_dir.exists() and any(chats_dir.glob("session-*.json")):
+                                has_history = True
+                                break
+
+                if has_history:
                     print(f"ℹ️ {provider}: 会话已结束，但可恢复历史会话")
-                    print(f"   会话ID: {session_id[:8]}...")
+                    if session_id:
+                        print(f"   会话ID: {session_id[:8]}...")
                     print(f"   使用: claude_bridge up {provider} -r")
                 else:
                     print(f"⚠️ {provider}: 会话已结束，无可恢复历史")

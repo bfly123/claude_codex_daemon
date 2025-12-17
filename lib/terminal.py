@@ -2,9 +2,11 @@
 from __future__ import annotations
 import json
 import os
+import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
 
@@ -51,15 +53,60 @@ class TmuxBackend(TerminalBackend):
 
 
 class WeztermBackend(TerminalBackend):
+    _wezterm_bin: Optional[str] = None
+
+    @classmethod
+    def _cli_base_args(cls) -> list[str]:
+        args = [cls._bin(), "cli"]
+        wezterm_class = os.environ.get("CODEX_WEZTERM_CLASS") or os.environ.get("WEZTERM_CLASS")
+        if wezterm_class:
+            args.extend(["--class", wezterm_class])
+        if os.environ.get("CODEX_WEZTERM_PREFER_MUX", "").lower() in {"1", "true", "yes", "on"}:
+            args.append("--prefer-mux")
+        if os.environ.get("CODEX_WEZTERM_NO_AUTO_START", "").lower() in {"1", "true", "yes", "on"}:
+            args.append("--no-auto-start")
+        return args
+
+    @classmethod
+    def _bin(cls) -> str:
+        if cls._wezterm_bin:
+            return cls._wezterm_bin
+        override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
+        if override:
+            cls._wezterm_bin = override
+            return override
+        cls._wezterm_bin = shutil.which("wezterm") or shutil.which("wezterm.exe") or "wezterm"
+        return cls._wezterm_bin
+
     def send_text(self, pane_id: str, text: str) -> None:
         sanitized = text.replace("\r", "").strip()
         if not sanitized:
             return
-        subprocess.run(["wezterm", "cli", "send-text", "--pane-id", pane_id, "--no-paste"], input=(sanitized + "\n").encode("utf-8"), check=True)
+        # tmux 可单独发 Enter 键；wezterm cli 没有 send-key，只能用 send-text 发送控制字符。
+        # 经验上，很多交互式 CLI 在“粘贴/多行输入”里不会自动执行；这里将文本和 Enter 分两次发送更可靠。
+        subprocess.run(
+            [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
+            input=sanitized.encode("utf-8"),
+            check=True,
+        )
+        # 给 TUI 一点时间退出“粘贴/突发输入”路径，再发送 Enter 更像真实按键
+        time.sleep(0.03)
+        try:
+            subprocess.run(
+                [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
+                input=b"\r",
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            subprocess.run(
+                [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
+                input=b"\n",
+                check=True,
+            )
 
     def is_alive(self, pane_id: str) -> bool:
         try:
-            result = subprocess.run(["wezterm", "cli", "list", "--format", "json"], capture_output=True, text=True)
+            result = subprocess.run([*self._cli_base_args(), "list", "--format", "json"], capture_output=True, text=True)
             if result.returncode != 0:
                 return False
             panes = json.loads(result.stdout)
@@ -68,13 +115,13 @@ class WeztermBackend(TerminalBackend):
             return False
 
     def kill_pane(self, pane_id: str) -> None:
-        subprocess.run(["wezterm", "cli", "kill-pane", "--pane-id", pane_id], stderr=subprocess.DEVNULL)
+        subprocess.run([*self._cli_base_args(), "kill-pane", "--pane-id", pane_id], stderr=subprocess.DEVNULL)
 
     def activate(self, pane_id: str) -> None:
-        subprocess.run(["wezterm", "cli", "activate-pane", "--pane-id", pane_id])
+        subprocess.run([*self._cli_base_args(), "activate-pane", "--pane-id", pane_id])
 
     def create_pane(self, cmd: str, cwd: str, direction: str = "right", percent: int = 50, parent_pane: Optional[str] = None) -> str:
-        args = ["wezterm", "cli", "split-pane", "--cwd", cwd]
+        args = [*self._cli_base_args(), "split-pane", "--cwd", cwd]
         if direction == "right":
             args.append("--right")
         elif direction == "bottom":
@@ -95,9 +142,12 @@ def detect_terminal() -> Optional[str]:
         return "wezterm"
     if os.environ.get("TMUX"):
         return "tmux"
-    if subprocess.run(["which", "wezterm"], capture_output=True).returncode == 0:
+    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
+    if override and Path(override).expanduser().exists():
         return "wezterm"
-    if subprocess.run(["which", "tmux"], capture_output=True).returncode == 0:
+    if shutil.which("wezterm") or shutil.which("wezterm.exe"):
+        return "wezterm"
+    if shutil.which("tmux") or shutil.which("tmux.exe"):
         return "tmux"
     return None
 
