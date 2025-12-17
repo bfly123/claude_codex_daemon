@@ -4,3 +4,4 @@ __pycache__/
 .gemini-session
 .claude-session
 .claude/
+*.mp4

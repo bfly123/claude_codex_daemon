@@ -13,10 +13,11 @@
 
 [English](#english) | [中文](#中文)
 
-<video width="600" controls>
-  <source src="assets/video.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+<img src="assets/figure.png" alt="Dual-pane screenshot" width="900">
+
+<p>
+  <a href="https://github.com/bfly123/claude_bridge/releases/download/2.0/video.mp4">Demo video (GitHub Release)</a>
+</p>
 
 </div>
 
@@ -41,7 +42,7 @@
 
 Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed full context every time.
 
-**claude_bridge** establishes a **persistent channel** where both AIs maintain independent contexts.
+**claude_bridge** establishes a **persistent, lightweight channel** for sending/receiving small messages while each AI maintains its own context.
 
 ### Division of Labor
 
@@ -58,7 +59,7 @@ Traditional MCP calls treat Codex as a **stateless executor**—Claude must feed
 |--------|----------------|----------------------|
 | Codex State | Stateless | Persistent session |
 | Context | Passed from Claude | Self-maintained |
-| Token Cost | 5k-20k/call | 50-200/call |
+| Token Cost | 5k-20k/call | 50-200/call (much faster) |
 | Work Mode | Master-slave | Parallel |
 | Recovery | Not possible | Supported (`-r`) |
 | Multi-AI | Single target | Multiple backends |
@@ -73,13 +74,11 @@ MCP approach:
   Claude → [full code + history + instructions] → Codex
   Cost: 5,000-20,000 tokens/call
 
-Dual-pane approach:
+Dual-pane approach (only sends/receives small messages):
   Claude → "optimize utils.py" → Codex
   Cost: 50-200 tokens/call
   (Codex reads the file itself)
 ```
-
-**Estimated savings: 70-90%**
 
 </details>
 
@@ -90,11 +89,6 @@ git clone https://github.com/bfly123/claude_bridge.git
 cd claude_bridge
 ./install.sh install
 ```
-
-### ⚠️ Troubleshooting Tips
-
-- 🧩 Install issues? Open `claude` in the installation directory and ask it to help you debug. Some environments (especially macOS and WSL2) haven’t been fully tested by the maintainer, but Claude can usually guide you to a working setup.
-- 🖱️ Can’t scroll in `tmux` with the mouse wheel/trackpad? Enable mouse mode: `tmux set -g mouse on` (otherwise you may not be able to view history).
 
 ## Start
 
@@ -170,14 +164,7 @@ claude_bridge update              # Update to latest version
 ## Requirements
 
 - Python 3.8+
-- tmux or WezTerm (at least one)
-
-### Windows (WezTerm + WSL2) Notes
-
-- Recommended: run `claude_bridge`, `claude`, and `codex` inside **WSL2**, and use **WezTerm** as the terminal UI.
-- If `wezterm.exe` isn't in WSL `$PATH`, set `CODEX_WEZTERM_BIN` (e.g. `export CODEX_WEZTERM_BIN=wezterm.exe`).
-- If Codex runs on Windows but scripts run in WSL, set `CODEX_SESSION_ROOT` to the Windows Codex sessions dir (WSL path, e.g. `/mnt/c/Users/<you>/.codex/sessions`).
-- If Gemini runs on Windows but scripts run in WSL, set `GEMINI_ROOT` to the Windows Gemini tmp dir (WSL path, e.g. `/mnt/c/Users/<you>/.gemini/tmp`).
+- tmux or WezTerm (at least one; WezTerm recommended)
 
 ## Uninstall
 
@@ -192,13 +179,25 @@ claude_bridge update              # Update to latest version
 ## 🎉 v2.0 新特性
 
 > **🪟 全面支持 Windows — 通过 [WezTerm](https://wezfurlong.org/wezterm/)**
-> WezTerm 现已成为所有平台的推荐终端。它是一个强大的跨平台终端，原生支持分屏。Linux/macOS 用户也推荐试试！tmux 仍然支持。
+> WezTerm 现已成为所有平台的推荐终端。它是一个强大的跨平台终端，原生支持分屏。Linux/macOS 用户也推荐使用！当然短期tmux仍然支持。
 
 - **⚡ 响应更快** — 优化了发送/接收延迟，显著快于 MCP
 - **🐛 macOS 修复** — 修复了会话恢复和各种登录问题
-- **🔄 便捷更新** — 运行 `claude_bridge update` 即可更新，无需重新拉取安装
+- **🔄 一键更新** — 运行 `claude_bridge update` 即可更新，无需重新拉取安装
 
 > 发现 bug？在项目目录运行 `claude` 调试，然后将 `git diff` 发给作者更新到主分支！
+
+---
+
+## 界面截图
+
+<div align="center">
+  <img src="assets/figure.png" alt="双窗口协作界面" width="900">
+</div>
+
+<div align="center">
+  <a href="https://github.com/bfly123/claude_bridge/releases/download/2.0/video.mp4">演示视频（GitHub Release）</a>
+</div>
 
 ---
 
@@ -206,7 +205,7 @@ claude_bridge update              # Update to latest version
 
 传统 MCP 调用把 Codex 当作**无状态执行器**——Claude 每次都要传递完整上下文。
 
-**claude_bridge** 建立**持久通道**，两个 AI 各自维护独立上下文。
+**claude_bridge** 建立**持久通道** 轻量级发送和抓取信息， AI间各自维护独立上下文。
 
 ### 分工协作
 
@@ -223,7 +222,7 @@ claude_bridge update              # Update to latest version
 |------|----------------|-----------|
 | Codex 状态 | 无记忆 | 持久会话 |
 | 上下文 | Claude 传递 | 各自维护 |
-| Token 消耗 | 5k-20k/次 | 50-200/次 |
+| Token 消耗 | 5k-20k/次 | 50-200/次（速度显著提升） |
 | 工作模式 | 主从 | 并行协作 |
 | 会话恢复 | 不支持 | 支持 (`-r`) |
 | 多AI | 单目标 | 多后端 |
@@ -238,13 +237,11 @@ MCP 方式：
   Claude → [完整代码 + 历史 + 指令] → Codex
   消耗：5,000-20,000 tokens/次
 
-双窗口方式：
+双窗口方式（每次仅发送和抓取少量信息）：
   Claude → "优化 utils.py" → Codex
   消耗：50-200 tokens/次
   (Codex 自己读取文件)
 ```
-
-**预估节省：70-90%**
 
 </details>
 
@@ -256,11 +253,8 @@ cd claude_bridge
 ./install.sh install
 ```
 
-### ⚠️ 常见问题提示
 
-- 🧩 如果安装遇到问题，可以在安装目录里打开 `claude`，让它帮你一起调试。部分环境（尤其是 macOS、WSL2 等）开发者没有充分测试，但一般 Claude 都能引导你把环境跑起来。
-- 🖱️ 如果在 `tmux` 里无法用滚轮/触控板滑动查看对话，可以开启鼠标模式：`tmux set -g mouse on`（否则可能无法查看历史对话）。
-- 🪟 Windows 推荐使用 **WezTerm + WSL2**：工具与 `codex/claude` 都跑在 WSL2 里，WezTerm 负责分屏与显示。
+
 
 ## 启动
 
@@ -336,14 +330,8 @@ claude_bridge update              # 更新到最新版本
 ## 依赖
 
 - Python 3.8+
-- tmux 或 WezTerm（至少安装一个）
+- tmux 或 WezTerm（至少安装一个），强烈推荐wezterm
 
-### Windows（WezTerm + WSL2）建议
-
-- 推荐：`claude_bridge/claude/codex` 都安装在 **WSL2**，WezTerm 仅作为前端分屏终端。
-- WSL 里找不到 `wezterm.exe` 时，设置 `CODEX_WEZTERM_BIN`（例如 `export CODEX_WEZTERM_BIN=wezterm.exe` 或填写完整路径）。
-- 若 Codex 跑在 Windows、脚本跑在 WSL，需要设置 `CODEX_SESSION_ROOT=/mnt/c/Users/<你>/.codex/sessions` 让 `cask-w/cpend` 能读到日志。
-- 若 Gemini 跑在 Windows、脚本跑在 WSL，需要设置 `GEMINI_ROOT=/mnt/c/Users/<你>/.gemini/tmp` 让 `gask-w/gpend` 能读到日志。
 
 ## 卸载
 
