@@ -13,7 +13,7 @@
 
 [English](#english) | [中文](#中文)
 
-<img src="assets/figure.png" alt="Dual-pane screenshot" width="900">
+<img src="assets/demo.webp" alt="Dual-pane demo (animated)" width="900">
 
 <p>
   <a href="https://github.com/bfly123/claude_bridge/releases/download/2.0/video.mp4">Demo video (GitHub Release)</a>
@@ -193,6 +193,10 @@ claude_bridge update              # Update to latest version
 
 <div align="center">
   <img src="assets/figure.png" alt="双窗口协作界面" width="900">
+</div>
+
+<div align="center">
+  <img src="assets/demo.webp" alt="动图预览" width="900">
 </div>
 
 <div align="center">
