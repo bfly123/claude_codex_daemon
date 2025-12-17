@@ -16,7 +16,7 @@
 <img src="assets/demo.webp" alt="Dual-pane demo (animated)" width="900">
 
 <p>
-  <a href="https://github.com/bfly123/claude_bridge/releases/download/2.0/video.mp4">Demo video (GitHub Release)</a>
+  <a href="https://github.com/bfly123/claude_bridge/releases/tag/2.0">Full demo video (GitHub Release)</a>
 </p>
 
 </div>
@@ -200,7 +200,7 @@ claude_bridge update              # Update to latest version
 </div>
 
 <div align="center">
-  <a href="https://github.com/bfly123/claude_bridge/releases/download/2.0/video.mp4">演示视频（GitHub Release）</a>
+  <a href="https://github.com/bfly123/claude_bridge/releases/tag/2.0">完整演示视频（GitHub Release）</a>
 </div>
 
 ---
