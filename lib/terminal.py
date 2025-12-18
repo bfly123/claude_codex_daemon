@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -222,7 +223,10 @@ class WeztermBackend(TerminalBackend):
         if is_wsl() and _is_windows_wezterm():
             in_wsl_pane = bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
             wsl_cwd = cwd
-            if "\\" in cwd or (len(cwd) > 2 and cwd[1] == ":"):
+            wsl_localhost_match = re.match(r'^[/\\]{1,2}wsl\.localhost[/\\][^/\\]+(.+)$', cwd, re.IGNORECASE)
+            if wsl_localhost_match:
+                wsl_cwd = wsl_localhost_match.group(1).replace('\\', '/')
+            elif "\\" in cwd or (len(cwd) > 2 and cwd[1] == ":"):
                 try:
                     result = subprocess.run(["wslpath", "-a", cwd], capture_output=True, text=True, check=True)
                     wsl_cwd = result.stdout.strip()
