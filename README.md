@@ -365,4 +365,10 @@ ccb update              # 更新到最新版本
 
 **WSL2 supported** | WSL1 not supported (FIFO limitation)
 
+---
+
+**测试用户群，欢迎大佬们**
+
+<img src="assets/wechat.jpg" alt="WeChat Group" width="300">
+
 </div>
