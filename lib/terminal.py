@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import time
@@ -59,7 +60,7 @@ def _get_wezterm_bin() -> str | None:
         _cached_wezterm_bin = found
         return found
     if is_wsl():
-        for drive in "cdef":
+        for drive in "cdefghijklmnopqrstuvwxyz":
             for path in [f"/mnt/{drive}/Program Files/WezTerm/wezterm.exe",
                          f"/mnt/{drive}/Program Files (x86)/WezTerm/wezterm.exe"]:
                 if Path(path).exists():
@@ -70,16 +71,24 @@ def _get_wezterm_bin() -> str | None:
 
 def _is_windows_wezterm() -> bool:
     """检测 WezTerm 是否运行在 Windows 上"""
-    wezterm_bin = _get_wezterm_bin()
-    if not wezterm_bin:
-        return False
-    return ".exe" in wezterm_bin.lower() or "/mnt/" in wezterm_bin
+    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
+    if override:
+        if ".exe" in override.lower() or "/mnt/" in override:
+            return True
+    if shutil.which("wezterm.exe"):
+        return True
+    if is_wsl():
+        for drive in "cdefghijklmnopqrstuvwxyz":
+            for path in [f"/mnt/{drive}/Program Files/WezTerm/wezterm.exe",
+                         f"/mnt/{drive}/Program Files (x86)/WezTerm/wezterm.exe"]:
+                if Path(path).exists():
+                    return True
+    return False
 
 
 def _default_shell() -> tuple[str, str]:
-    # WSL + Windows WezTerm: pane 在 Windows 环境运行，需用 PowerShell
-    if is_wsl() and _is_windows_wezterm():
-        return "powershell.exe", "-Command"
+    if is_wsl():
+        return "bash", "-c"
     if is_windows():
         for shell in ["pwsh", "powershell"]:
             if shutil.which(shell):
@@ -209,16 +218,39 @@ class WeztermBackend(TerminalBackend):
         subprocess.run([*self._cli_base_args(), "activate-pane", "--pane-id", pane_id])
 
     def create_pane(self, cmd: str, cwd: str, direction: str = "right", percent: int = 50, parent_pane: Optional[str] = None) -> str:
-        args = [*self._cli_base_args(), "split-pane", "--cwd", cwd]
-        if direction == "right":
-            args.append("--right")
-        elif direction == "bottom":
-            args.append("--bottom")
-        args.extend(["--percent", str(percent)])
-        if parent_pane:
-            args.extend(["--pane-id", parent_pane])
-        shell, flag = _default_shell()
-        args.extend(["--", shell, flag, cmd])
+        args = [*self._cli_base_args(), "split-pane"]
+        if is_wsl() and _is_windows_wezterm():
+            in_wsl_pane = bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+            wsl_cwd = cwd
+            if "\\" in cwd or (len(cwd) > 2 and cwd[1] == ":"):
+                try:
+                    result = subprocess.run(["wslpath", "-a", cwd], capture_output=True, text=True, check=True)
+                    wsl_cwd = result.stdout.strip()
+                except Exception:
+                    pass
+            if direction == "right":
+                args.append("--right")
+            elif direction == "bottom":
+                args.append("--bottom")
+            args.extend(["--percent", str(percent)])
+            if parent_pane:
+                args.extend(["--pane-id", parent_pane])
+            startup_script = f"cd {shlex.quote(wsl_cwd)} && exec {cmd}"
+            if in_wsl_pane:
+                args.extend(["--", "bash", "-l", "-i", "-c", startup_script])
+            else:
+                args.extend(["--", "wsl.exe", "bash", "-l", "-i", "-c", startup_script])
+        else:
+            args.extend(["--cwd", cwd])
+            if direction == "right":
+                args.append("--right")
+            elif direction == "bottom":
+                args.append("--bottom")
+            args.extend(["--percent", str(percent)])
+            if parent_pane:
+                args.extend(["--pane-id", parent_pane])
+            shell, flag = _default_shell()
+            args.extend(["--", shell, flag, cmd])
         result = subprocess.run(args, capture_output=True, text=True, check=True)
         return result.stdout.strip()
 
