@@ -22,7 +22,26 @@ def is_wsl() -> bool:
         return False
 
 
+def _is_windows_wezterm() -> bool:
+    """检测 WezTerm 是否运行在 Windows 上"""
+    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
+    if override and "/mnt/c/" in override:
+        return True
+    if is_wsl():
+        candidates = [
+            "/mnt/c/Program Files/WezTerm/wezterm.exe",
+            "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe",
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                return True
+    return False
+
+
 def _default_shell() -> tuple[str, str]:
+    # WSL + Windows WezTerm: pane 在 Windows 环境运行，需用 PowerShell
+    if is_wsl() and _is_windows_wezterm():
+        return "powershell.exe", "-Command"
     if is_windows():
         for shell in ["pwsh", "powershell"]:
             if shutil.which(shell):
