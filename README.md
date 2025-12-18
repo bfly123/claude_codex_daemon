@@ -90,6 +90,14 @@ cd claude_code_bridge
 ./install.sh install
 ```
 
+### Windows
+
+- **WSL2 (recommended):** run the same commands inside WSL.
+- **Native Windows (PowerShell/CMD):** use the wrappers:
+  - `install.cmd install`
+  - or `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install`
+- **WezTerm-only (no tmux):** run `ccb` inside WezTerm, or set `CCB_TERMINAL=wezterm` (and if needed `CODEX_WEZTERM_BIN` to `wezterm.exe`).
+
 ## Start
 
 ```bash
@@ -256,6 +264,14 @@ git clone https://github.com/bfly123/claude_code_bridge.git
 cd claude_code_bridge
 ./install.sh install
 ```
+
+### Windows
+
+- **推荐 WSL2：** 在 WSL 内执行上面的命令即可。
+- **原生 Windows（PowerShell/CMD）：** 使用包装脚本：
+  - `install.cmd install`
+  - 或 `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install`
+- **仅 WezTerm（无 tmux）：** 建议在 WezTerm 中运行 `ccb`，或设置 `CCB_TERMINAL=wezterm`（必要时设置 `CODEX_WEZTERM_BIN=wezterm.exe`）。
 
 
 

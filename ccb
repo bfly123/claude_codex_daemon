@@ -18,6 +18,7 @@ import getpass
 import platform
 import tempfile
 import re
+import shutil
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -50,28 +51,63 @@ class AILauncher:
         self.processes = {}
 
     def _detect_terminal_type(self):
-        # 只有在 WezTerm 环境中才用 WezTerm 分屏
+        # 环境变量强制指定
+        forced = (os.environ.get("CCB_TERMINAL") or os.environ.get("CODEX_TERMINAL") or "").strip().lower()
+        if forced in {"wezterm", "tmux"}:
+            return forced
+
+        # 在 WezTerm pane 内时，强制使用 wezterm，完全不依赖 tmux
         if os.environ.get("WEZTERM_PANE"):
             return "wezterm"
-        # 其他情况都用 tmux
-        return "tmux"
 
-    def _detect_terminal(self):
-        if is_wsl():
-            return "tmux"
-        if platform.system() == "Darwin":
-            return "tmux"
+        # 使用 detect_terminal() 自动检测（WezTerm 优先）
+        detected = detect_terminal()
+        if detected:
+            return detected
+
+        # 兜底：如果都没有，返回 None 让后续逻辑处理
+        return None
+
+    def _detect_launch_terminal(self):
+        """选择用于启动新窗口的终端程序（仅 tmux 模式下使用）"""
+        # WezTerm 模式不需要外部终端程序
+        if self.terminal_type == "wezterm":
+            return None
+        # tmux 模式下选择终端
         terminals = ["gnome-terminal", "konsole", "alacritty", "xterm"]
         for term in terminals:
-            if subprocess.run(["which", term], capture_output=True).returncode == 0:
+            if shutil.which(term):
                 return term
         return "tmux"
 
     def _start_provider(self, provider: str) -> bool:
-        print(f"🚀 启动 {provider.capitalize()} 后端 ({self.terminal_type})...")
+        # 处理未检测到终端的情况
+        if self.terminal_type is None:
+            print("❌ 未检测到可用的终端后端（WezTerm 或 tmux）")
+            print("   解决方案:")
+            print("   - 安装 WezTerm（推荐）: https://wezfurlong.org/wezterm/")
+            print("   - 或安装 tmux")
+            print("   - 或设置环境变量 CCB_TERMINAL=wezterm 并配置 CODEX_WEZTERM_BIN")
+            return False
 
+        # WezTerm 模式：完全不依赖 tmux
         if self.terminal_type == "wezterm":
+            print(f"🚀 启动 {provider.capitalize()} 后端 (wezterm)...")
             return self._start_provider_wezterm(provider)
+
+        # tmux 模式：检查 tmux 是否可用
+        if not shutil.which("tmux"):
+            # 尝试 fallback 到 WezTerm
+            if detect_terminal() == "wezterm":
+                self.terminal_type = "wezterm"
+                print(f"🚀 启动 {provider.capitalize()} 后端 (wezterm - tmux 不可用)...")
+                return self._start_provider_wezterm(provider)
+            else:
+                print("❌ tmux 未安装，且 WezTerm 不可用")
+                print("   解决方案: 安装 WezTerm（推荐）或 tmux")
+                return False
+
+        print(f"🚀 启动 {provider.capitalize()} 后端 (tmux)...")
 
         tmux_session = f"{provider}-{int(time.time()) % 100000}-{os.getpid()}"
         self.tmux_sessions[provider] = tmux_session
@@ -348,7 +384,7 @@ exec tmux attach -t "$TMUX_SESSION"
 
         self._write_codex_session(runtime, tmux_session, input_fifo, output_fifo)
 
-        terminal = self._detect_terminal()
+        terminal = self._detect_launch_terminal()
         if terminal == "tmux":
             subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
         else:
@@ -377,7 +413,7 @@ exec tmux attach -t "$TMUX_SESSION"
         script_file.write_text(wrapper)
         os.chmod(script_file, 0o755)
 
-        terminal = self._detect_terminal()
+        terminal = self._detect_launch_terminal()
         if terminal == "tmux":
             # 纯 tmux 模式
             subprocess.run(["tmux", "new-session", "-d", "-s", tmux_session], check=True, cwd=os.getcwd())

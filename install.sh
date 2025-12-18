@@ -158,7 +158,8 @@ print_tmux_install_hint() {
   esac
 }
 
-require_tmux() {
+require_terminal_backend() {
+  # 检测 WezTerm（优先）
   local wezterm_override="${CODEX_WEZTERM_BIN:-${WEZTERM_BIN:-}}"
   if [[ -n "${wezterm_override}" ]]; then
     if command -v "${wezterm_override}" >/dev/null 2>&1 || [[ -f "${wezterm_override}" ]]; then
@@ -170,13 +171,40 @@ require_tmux() {
     echo "✓ 检测到 WezTerm"
     return
   fi
+  # WSL 场景：Windows PATH 可能未注入 WSL，尝试常见安装路径
+  if [[ -f "/proc/version" ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    if [[ -x "/mnt/c/Program Files/WezTerm/wezterm.exe" ]] || [[ -f "/mnt/c/Program Files/WezTerm/wezterm.exe" ]]; then
+      echo "✓ 检测到 WezTerm (/mnt/c/Program Files/WezTerm/wezterm.exe)"
+      return
+    fi
+    if [[ -x "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe" ]] || [[ -f "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe" ]]; then
+      echo "✓ 检测到 WezTerm (/mnt/c/Program Files (x86)/WezTerm/wezterm.exe)"
+      return
+    fi
+  fi
+  # 检测 tmux（备选）
   if command -v tmux >/dev/null 2>&1; then
-    echo "✓ 检测到 tmux"
+    echo "✓ 检测到 tmux（建议同时安装 WezTerm 以获得更好体验）"
     return
   fi
-  echo "❌ 缺少依赖: tmux 或 wezterm (至少需要安装其中一个)"
+  echo "❌ 缺少依赖: WezTerm 或 tmux（推荐 WezTerm）"
+  echo "   WezTerm 官网: https://wezfurlong.org/wezterm/"
   print_tmux_install_hint
   exit 1
+}
+
+has_wezterm() {
+  local wezterm_override="${CODEX_WEZTERM_BIN:-${WEZTERM_BIN:-}}"
+  if [[ -n "${wezterm_override}" ]]; then
+    command -v "${wezterm_override}" >/dev/null 2>&1 || [[ -f "${wezterm_override}" ]] && return 0
+  fi
+  command -v wezterm >/dev/null 2>&1 && return 0
+  command -v wezterm.exe >/dev/null 2>&1 && return 0
+  if [[ -f "/proc/version" ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    [[ -f "/mnt/c/Program Files/WezTerm/wezterm.exe" ]] && return 0
+    [[ -f "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe" ]] && return 0
+  fi
+  return 1
 }
 
 copy_project() {
@@ -219,7 +247,13 @@ install_bin_links() {
       continue
     fi
     chmod +x "$INSTALL_PREFIX/$path"
-    ln -sf "$INSTALL_PREFIX/$path" "$BIN_DIR/$name"
+    if ln -sf "$INSTALL_PREFIX/$path" "$BIN_DIR/$name" 2>/dev/null; then
+      :
+    else
+      # Windows (Git Bash) / restricted environments may not allow symlinks. Fall back to copying.
+      cp -f "$INSTALL_PREFIX/$path" "$BIN_DIR/$name"
+      chmod +x "$BIN_DIR/$name" 2>/dev/null || true
+    fi
   done
 
   for legacy in "${LEGACY_SCRIPTS[@]}"; do
@@ -235,7 +269,8 @@ install_claude_commands() {
   mkdir -p "$claude_dir"
 
   for doc in "${CLAUDE_MARKDOWN[@]}"; do
-    install -m 0644 "$REPO_ROOT/commands/$doc" "$claude_dir/$doc"
+    cp -f "$REPO_ROOT/commands/$doc" "$claude_dir/$doc"
+    chmod 0644 "$claude_dir/$doc" 2>/dev/null || true
   done
 
   echo "已更新 Claude 命令目录: $claude_dir"
@@ -331,7 +366,7 @@ with open('$claude_md', 'w', encoding='utf-8') as f:
   cat >> "$claude_md" << 'AI_RULES'
 
 ## Codex Collaboration Rules
-Codex is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Codex:
+Codex is another AI assistant running in a separate terminal session (WezTerm or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
 - If the user message starts with any of: `调取codex`, `@codex`, `codex:`, `codex：`, `问codex`, `让codex` then immediately run:
@@ -356,7 +391,7 @@ Examples:
 - "don't wait for reply" → cask
 
 ## Gemini Collaboration Rules
-Gemini is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Gemini:
+Gemini is another AI assistant running in a separate terminal session (WezTerm or tmux). When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
 - If the user message starts with any of: `调取gemini`, `@gemini`, `gemini:`, `gemini：`, `问gemini`, `让gemini` then immediately run:
@@ -453,8 +488,8 @@ with open('$settings_file', 'w') as f:
 install_requirements() {
   check_wsl_compatibility
   require_command python3 python3
-  require_tmux
-  if ! command -v wezterm >/dev/null 2>&1 && ! command -v wezterm.exe >/dev/null 2>&1; then
+  require_terminal_backend
+  if ! has_wezterm; then
     echo
     echo "================================================================"
     echo "⚠️ 建议安装 WezTerm 作为终端前端（体验更好，推荐 WSL2/Windows 用户）"

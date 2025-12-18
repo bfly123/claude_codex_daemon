@@ -61,6 +61,13 @@ class TmuxBackend(TerminalBackend):
 class WeztermBackend(TerminalBackend):
     _wezterm_bin: Optional[str] = None
 
+    @staticmethod
+    def _is_wsl() -> bool:
+        try:
+            return "microsoft" in Path("/proc/version").read_text().lower()
+        except Exception:
+            return False
+
     @classmethod
     def _cli_base_args(cls) -> list[str]:
         args = [cls._bin(), "cli"]
@@ -81,7 +88,18 @@ class WeztermBackend(TerminalBackend):
         if override:
             cls._wezterm_bin = override
             return override
-        cls._wezterm_bin = shutil.which("wezterm") or shutil.which("wezterm.exe") or "wezterm"
+        found = shutil.which("wezterm") or shutil.which("wezterm.exe")
+        if not found and cls._is_wsl():
+            # Common Windows install locations (WSL interop may not expose Windows PATH).
+            candidates = [
+                "/mnt/c/Program Files/WezTerm/wezterm.exe",
+                "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe",
+            ]
+            for candidate in candidates:
+                if Path(candidate).exists():
+                    found = candidate
+                    break
+        cls._wezterm_bin = found or "wezterm"
         return cls._wezterm_bin
 
     def send_text(self, pane_id: str, text: str) -> None:
