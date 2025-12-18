@@ -1,0 +1,1805 @@
+Index: README.md
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/README.md b/README.md
+--- a/README.md	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/README.md	(date 1766022523413)
+@@ -84,12 +84,35 @@
+ 
+ ## Install
+ 
++### Linux / macOS
++
+ ```bash
+ git clone https://github.com/bfly123/claude_code_bridge.git
+ cd claude_code_bridge
+ ./install.sh install
+ ```
+ 
++### Windows 10/11
++
++**PowerShell / CMD:**
++```powershell
++# In PowerShell
++git clone https://github.com/bfly123/claude_code_bridge.git
++cd claude_code_bridge
++.\install.ps1 install
++
++# Add to PATH if prompted
++[Environment]::SetEnvironmentVariable('Path', "$env:Path;$env:APPDATA\Scripts", 'User')
++```
++
++**Git Bash:**
++```bash
++# Shell wrapper is auto-generated, just configure PATH
++export PATH="$APPDATA/Scripts:$PATH"
++```
++
++> **📖 Windows Users**: See [WINDOWS_INSTALL.md](WINDOWS_INSTALL.md) for detailed guide
++
+ ## Start
+ 
+ ```bash
+@@ -251,12 +274,28 @@
+ 
+ ## 安装
+ 
++### Linux / macOS
++
+ ```bash
+ git clone https://github.com/bfly123/claude_code_bridge.git
+ cd claude_code_bridge
+ ./install.sh install
+ ```
+ 
++### Windows 10/11
++
++```powershell
++# 在 PowerShell 中运行
++git clone https://github.com/bfly123/claude_code_bridge.git
++cd claude_code_bridge
++.\install.ps1 install
++
++# 如果提示需要，添加到 PATH
++[Environment]::SetEnvironmentVariable('Path', "$env:Path;$env:APPDATA\Scripts", 'User')
++```
++
++> **📖 Windows 用户**: 详见 [WINDOWS_INSTALL.md](WINDOWS_INSTALL.md) 完整安装指南
++
+ 
+ 
+ 
+Index: bin/cask
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/cask b/bin/cask
+--- a/bin/cask	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/cask	(date 1766020886046)
+@@ -9,8 +9,32 @@
+ from pathlib import Path
+ from typing import Optional, Tuple
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++
++    # 方法1: 脚本在 bin 目录 (开发环境/Unix 安装)
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++
++    # 方法2: Windows 安装 (Scripts 目录)
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++
++    # 方法3: Unix 标准安装位置
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++
++    # 如果都找不到，返回默认路径
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ from terminal import get_backend_for_session, get_pane_id_from_session
+Index: lib/terminal.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/lib/terminal.py b/lib/terminal.py
+--- a/lib/terminal.py	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/lib/terminal.py	(date 1766019648024)
+@@ -135,7 +135,16 @@
+         args.extend(["--percent", str(percent)])
+         if parent_pane:
+             args.extend(["--pane-id", parent_pane])
+-        args.extend(["--", "bash", "-c", cmd])
++
++        # 根据平台选择 Shell
++        import platform
++        if platform.system() == "Windows" and not os.environ.get("WSL_DISTRO_NAME"):
++            # Windows 原生: 使用 PowerShell
++            args.extend(["--", "powershell.exe", "-NoProfile", "-Command", cmd])
++        else:
++            # Unix-like 或 WSL: 使用 bash
++            args.extend(["--", "bash", "-c", cmd])
++
+         result = subprocess.run(args, capture_output=True, text=True, check=True)
+         return result.stdout.strip()
+ 
+Index: ccb
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/ccb b/ccb
+--- a/ccb	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/ccb	(date 1766020860065)
+@@ -20,13 +20,50 @@
+ import re
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-sys.path.insert(0, str(script_dir / "lib"))
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++
++    # 方法1: 脚本在项目根目录 (开发环境)
++    # 结构: 项目根/ccb, 项目根/lib/
++    candidate = script_path.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++
++    # 方法2: 脚本在 bin 目录 (Unix 安装)
++    # 结构: 安装根/bin/ccb, 安装根/lib/
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++
++    # 方法3: Windows 安装 (通过环境变量)
++    # Scripts/ccb.py -> APPDATA/codex-dual/lib
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++
++    # 方法4: Unix 安装 (通过 HOME)
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++
++    # 如果都找不到，返回默认路径 (会报错)
++    return script_path.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
++sys.path.insert(0, str(lib_dir))
+ from terminal import TmuxBackend, WeztermBackend, detect_terminal
+ 
+ 
+ def is_wsl() -> bool:
+     try:
++        # Windows 原生直接返回 False (避免访问不存在的 /proc/version)
++        if platform.system() == "Windows":
++            return False
++        # WSL 环境检查 /proc/version
+         return "microsoft" in Path("/proc/version").read_text().lower()
+     except Exception:
+         return False
+@@ -50,6 +87,11 @@
+         self.processes = {}
+ 
+     def _detect_terminal_type(self):
++        # Windows 原生强制使用 WezTerm (不支持 tmux)
++        if platform.system() == "Windows" and not os.environ.get("WSL_DISTRO_NAME"):
++            return "wezterm"
++
++        # 其他系统保持原逻辑
+         # 只有在 WezTerm 环境中才用 WezTerm 分屏
+         if os.environ.get("WEZTERM_PANE"):
+             return "wezterm"
+Index: WINDOWS_INSTALL.md
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/WINDOWS_INSTALL.md b/WINDOWS_INSTALL.md
+new file mode 100644
+--- /dev/null	(date 1766022490296)
++++ b/WINDOWS_INSTALL.md	(date 1766022490296)
+@@ -0,0 +1,416 @@
++# Windows 安装指南
++
++> Claude Code Bridge (ccb) - Windows 10/11 原生支持
++
++## 📋 前置要求
++
++### 必需
++- **Windows 10 或 Windows 11**
++- **Python 3.8+** (推荐 Python 3.10+)
++  - 下载: https://www.python.org/downloads/
++  - 安装时勾选 "Add Python to PATH"
++- **WezTerm** (推荐的终端模拟器)
++  - 下载: https://wezfurlong.org/wezterm/
++  - 或使用 `winget install wez.wezterm`
++
++### 当前系统状态
++✅ Python 3.13.3 已安装
++✅ WezTerm 已安装
++
++---
++
++## 🚀 快速安装
++
++### 方法 1: PowerShell (推荐)
++
++在项目目录中打开 PowerShell:
++
++```powershell
++# 进入项目目录
++cd D:\workspace\IdeaProjects\claude_code_bridge
++
++# 执行安装
++.\install.ps1 install
++```
++
++### 方法 2: Git Bash
++
++如果你安装了 Git for Windows:
++
++```bash
++./install.sh install
++```
++
++---
++
++## ⚙️ 配置 PATH
++
++安装完成后,需要将可执行目录添加到 PATH 环境变量。
++
++### 自动配置 (推荐)
++
++安装脚本会询问是否自动添加到 PATH,选择 `y` 即可。
++
++### 手动配置
++
++如果自动配置失败,请手动添加:
++
++**方法 1: PowerShell 命令**
++```powershell
++$binDir = "$env:APPDATA\Scripts"
++[Environment]::SetEnvironmentVariable('Path', "$env:Path;$binDir", 'User')
++```
++
++**方法 2: 图形界面**
++1. 右键 "此电脑" → "属性"
++2. 点击 "高级系统设置"
++3. 点击 "环境变量"
++4. 在 "用户变量" 中找到 "Path",点击 "编辑"
++5. 点击 "新建",添加: `C:\Users\你的用户名\AppData\Roaming\Scripts`
++6. 点击 "确定" 保存
++
++### 验证 PATH 配置
++
++重启终端后,运行:
++```powershell
++ccb --help
++```
++
++如果显示帮助信息,说明配置成功 ✅
++
++---
++
++## 🎯 使用指南
++
++### 启动 AI 后端
++
++在 **WezTerm** 中运行:
++
++```powershell
++# 启动 Codex
++ccb up codex
++
++# 启动 Gemini
++ccb up gemini
++
++# 同时启动两个后端
++ccb up codex gemini
++```
++
++### 通信命令
++
++在 **Claude Code** 中使用:
++
++#### Codex 通信
++```bash
++# 同步询问 (等待回复)
++cask-w "帮我分析这段代码"
++
++# 异步发送 (不等待)
++cask "请查看最新的 commit"
++
++# 查看最新回复
++cpend
++
++# 测试连通性
++cping
++```
++
++#### Gemini 通信
++```bash
++# 同步询问
++gask-w "这个架构设计如何?"
++
++# 异步发送
++gask "请帮我review代码"
++
++# 查看最新回复
++gpend
++
++# 测试连通性
++gping
++```
++
++### 检查状态
++
++```powershell
++# 查看所有后端状态
++ccb status
++
++# 查看特定后端
++ccb status codex
++ccb status gemini
++```
++
++### 终止会话
++
++```powershell
++# 终止所有后端
++ccb kill
++
++# 终止特定后端
++ccb kill codex
++ccb kill gemini
++```
++
++### 恢复会话
++
++```powershell
++# 恢复之前的会话
++ccb restore codex
++ccb restore gemini
++```
++
++---
++
++## 🐚 Git Bash / WSL 支持
++
++### 自动生成的 Shell Wrapper
++
++**从 v2.1 开始**，安装器会自动为 Git Bash 生成无扩展名的 shell wrapper，无需额外配置即可使用。
++
++```bash
++# 验证 wrapper 是否存在
++ls -l "$APPDATA/Scripts/cask-w"
++# 输出：-rwxr-xr-x 1 user group ... cask-w
++
++# 直接使用（无需 .bat 后缀）
++cask-w "你的问题"
++cpend
++cping
++```
++
++### 故障排除
++
++**问题 1：命令仍然找不到**
++
++原因：Scripts 目录不在 PATH 中
++
++解决方案：
++```bash
++# 临时添加（当前会话）
++export PATH="/c/Users/你的用户名/AppData/Roaming/Scripts:$PATH"
++
++# 永久添加（推荐）
++echo 'export PATH="$APPDATA/Scripts:$PATH"' >> ~/.bashrc
++source ~/.bashrc
++```
++
++**问题 2：权限被拒绝**
++
++原因：wrapper 缺少执行权限
++
++解决方案：
++```bash
++chmod +x "$APPDATA/Scripts"/*
++```
++
++**问题 3：从旧版本升级**
++
++如果从 v2.0 升级，重新运行安装脚本：
++
++```powershell
++# PowerShell
++cd claude_code_bridge
++.\install.ps1 install
++```
++
++### WSL 用户
++
++WSL 环境请使用 Linux 安装方式：
++
++```bash
++cd ~/claude_code_bridge
++./install.sh install
++```
++
++---
++
++## 🔧 故障排除
++
++### 问题 1: `ccb` 命令无法识别
++
++**原因**: PATH 未正确配置或终端未重启
++
++**解决方案**:
++1. 重启终端 (关闭所有 PowerShell/WezTerm 窗口后重新打开)
++2. 检查 PATH: `$env:Path -split ';' | Select-String 'Scripts'`
++3. 如果没有输出,按照 "配置 PATH" 章节手动添加
++
++---
++
++### 问题 2: Python 报错
++
++**原因**: Python 版本过低或未安装
++
++**解决方案**:
++1. 检查版本: `python --version`
++2. 如果低于 3.8,从 https://www.python.org/downloads/ 下载新版本
++3. 安装时务必勾选 "Add Python to PATH"
++
++---
++
++### 问题 3: WezTerm 未找到
++
++**原因**: WezTerm 未安装或不在 PATH 中
++
++**解决方案**:
++1. 安装 WezTerm: `winget install wez.wezterm`
++2. 或手动下载: https://wezfurlong.org/wezterm/
++3. 如果已安装但未检测到,设置环境变量:
++   ```powershell
++   [Environment]::SetEnvironmentVariable('CODEX_WEZTERM_BIN', 'C:\Program Files\WezTerm\wezterm.exe', 'User')
++   ```
++
++---
++
++### 问题 4: PowerShell 执行策略限制
++
++**错误提示**: `无法加载文件 install.ps1,因为在此系统上禁止运行脚本`
++
++**解决方案**:
++1. 以管理员身份打开 PowerShell
++2. 运行: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
++3. 输入 `Y` 确认
++4. 重新执行安装脚本
++
++---
++
++### 问题 5: 中文路径或用户名问题
++
++**现象**: 安装或运行时出现编码错误
++
++**解决方案**:
++- 项目已使用 UTF-8 编码,理论上支持中文路径
++- 如果仍有问题,建议使用英文路径
++- 或将安装目录设置为: `.\install.ps1 -InstallPrefix "D:\ccb"`
++
++---
++
++### 问题 6: `ccb up codex` 无反应
++
++**可能原因**:
++1. 不在 WezTerm 中运行
++2. Codex 或 Gemini 未安装
++
++**解决方案**:
++1. 确保在 WezTerm 终端中运行 (不要用 Windows Terminal 或 PowerShell ISE)
++2. 检查 Codex 安装: `codex --version`
++3. 检查 Gemini 安装: `gemini --version`
++
++---
++
++## 🔄 更新
++
++### 更新到最新版本
++
++```powershell
++# Git 更新 (如果是从 Git 仓库安装)
++cd D:\workspace\IdeaProjects\claude_code_bridge
++git pull
++.\install.ps1 update
++
++# 或者重新安装
++.\install.ps1 install
++```
++
++---
++
++## 🗑️ 卸载
++
++### 完全卸载
++
++```powershell
++cd D:\workspace\IdeaProjects\claude_code_bridge
++.\install.ps1 uninstall
++```
++
++**注意**: 卸载不会删除 Claude 配置文件 (`~\.claude\`)
++
++---
++
++## 📁 文件位置
++
++### 安装目录
++- **安装路径**: `C:\Users\你的用户名\AppData\Roaming\codex-dual`
++- **可执行文件**: `C:\Users\你的用户名\AppData\Roaming\Scripts`
++- **Claude 配置**: `C:\Users\你的用户名\.claude\`
++- **运行时目录**: `%TEMP%\claude-ai-你的用户名\`
++
++### 会话文件
++- **项目级会话**: `.codex-session`, `.gemini-session`
++- **Codex 日志**: `~\.codex\sessions\`
++- **Gemini 日志**: `~\.gemini\tmp\`
++
++---
++
++## 💡 使用技巧
++
++### 1. 在 Claude 中快速触发
++
++Claude 配置了快捷触发规则:
++- `@codex 问题` → 自动执行 `cask-w "问题"`
++- `@gemini 问题` → 自动执行 `gask-w "问题"`
++- `调取codex` → 立即触发
++- `问codex` → 立即触发
++
++### 2. WezTerm 分屏布局
++
++`ccb up` 会自动在 WezTerm 中创建分屏:
++- 第一个后端: 右侧分屏
++- 第二个后端: 下方分屏
++
++你可以用 `Ctrl+Shift+H/J/K/L` 在窗格间切换 (如果配置了快捷键)
++
++### 3. 会话持久化
++
++会话会自动保存到项目目录:
++- `.codex-session` - Codex 会话信息
++- `.gemini-session` - Gemini 会话信息
++
++即使关闭终端,也可以用 `ccb restore` 恢复
++
++### 4. 多项目支持
++
++每个项目目录可以独立运行 ccb:
++```powershell
++cd D:\project-a
++ccb up codex
++
++cd D:\project-b
++ccb up codex  # 不会冲突
++```
++
++---
++
++## 🆘 获取帮助
++
++### 命令帮助
++```powershell
++ccb --help
++cask --help
++gask --help
++```
++
++### 在线资源
++- **项目主页**: [GitHub - claude_code_bridge](https://github.com/your-repo/claude_code_bridge)
++- **问题反馈**: [GitHub Issues](https://github.com/your-repo/claude_code_bridge/issues)
++- **主 README**: [README.md](README.md)
++
++---
++
++## 🎉 成功安装后
++
++恭喜!你已经成功在 Windows 上安装了 Claude Code Bridge。
++
++**推荐工作流**:
++1. 在 WezTerm 中打开你的项目目录
++2. 运行 `ccb up codex` (或 `ccb up gemini`)
++3. 在 Claude Code 中使用 `cask-w` 或 `gask-w` 与 AI 协作
++4. 享受多 AI 并行工作的高效体验!
++
++**提示**: 第一次使用时,Codex 和 Gemini 可能需要你授权或登录,按照提示操作即可。
++
++---
++
++*文档版本: 2.1 | 最后更新: 2025*
+Index: bin/gask-w
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/gask-w b/bin/gask-w
+--- a/bin/gask-w	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/gask-w	(date 1766020992732)
+@@ -5,11 +5,28 @@
+ 
+ from __future__ import annotations
+ 
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ from gemini_comm import GeminiCommunicator
+Index: bin/cask-w
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/cask-w b/bin/cask-w
+--- a/bin/cask-w	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/cask-w	(date 1766020960702)
+@@ -3,11 +3,28 @@
+ cask-w - 同步发送消息到 Codex 并等待回复
+ """
+ from __future__ import annotations
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ from codex_comm import CodexCommunicator
+Index: install.ps1
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/install.ps1 b/install.ps1
+new file mode 100644
+--- /dev/null	(date 1766022454046)
++++ b/install.ps1	(date 1766022454046)
+@@ -0,0 +1,315 @@
++# Claude Code Bridge (ccb) Windows 安装脚本
++# 版本: 2.1-windows
++# 支持: Windows 10+
++
++param(
++    [Parameter(Position=0)]
++    [ValidateSet("install", "uninstall", "update")]
++    [string]$Action = "install",
++
++    [string]$InstallPrefix = "$env:APPDATA\codex-dual",
++    [string]$BinDir = "$env:APPDATA\Scripts"
++)
++
++$ErrorActionPreference = "Stop"
++
++# 颜色输出函数
++function Write-ColorOutput {
++    param(
++        [string]$Message,
++        [string]$Color = "White"
++    )
++    Write-Host $Message -ForegroundColor $Color
++}
++
++# 检查 Python 版本
++function Test-PythonVersion {
++    Write-ColorOutput "`n🔍 检查 Python..." "Cyan"
++
++    $pythonCmd = $null
++
++    # 优先使用 py launcher
++    if (Get-Command py -ErrorAction SilentlyContinue) {
++        $pythonCmd = "py"
++    }
++    elseif (Get-Command python -ErrorAction SilentlyContinue) {
++        $pythonCmd = "python"
++    }
++    elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
++        $pythonCmd = "python3"
++    }
++    else {
++        Write-ColorOutput "❌ 未找到 Python" "Red"
++        Write-ColorOutput "   请从 https://www.python.org/downloads/ 安装 Python 3.8+" "Yellow"
++        exit 1
++    }
++
++    # 检查版本
++    try {
++        $versionOutput = & $pythonCmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
++
++        # 分别获取主版本号和次版本号进行比较
++        $parts = $versionOutput.Split('.')
++        $major = [int]$parts[0]
++        $minor = [int]$parts[1]
++
++        # 检查是否满足 Python 3.8+ 要求
++        if (($major -lt 3) -or (($major -eq 3) -and ($minor -lt 8))) {
++            Write-ColorOutput "❌ Python 版本过低: $versionOutput" "Red"
++            Write-ColorOutput "   需要 Python 3.8+，请升级" "Yellow"
++            exit 1
++        }
++
++        Write-ColorOutput "✓ Python $versionOutput" "Green"
++        return $pythonCmd
++    }
++    catch {
++        Write-ColorOutput "❌ 无法检测 Python 版本" "Red"
++        exit 1
++    }
++}
++
++# 检查 WezTerm
++function Test-WezTerm {
++    Write-ColorOutput "🔍 检查 WezTerm..." "Cyan"
++
++    # 检查环境变量配置
++    $weztermBin = $env:CODEX_WEZTERM_BIN
++    if ($null -eq $weztermBin) {
++        $weztermBin = $env:WEZTERM_BIN
++    }
++
++    # 如果指定了路径，检查文件是否存在
++    if ($null -ne $weztermBin) {
++        if (Test-Path $weztermBin) {
++            Write-ColorOutput "✓ WezTerm 已配置: $weztermBin" "Green"
++            return
++        }
++    }
++
++    # 尝试在 PATH 中查找
++    if (Get-Command wezterm -ErrorAction SilentlyContinue) {
++        Write-ColorOutput "✓ WezTerm 已安装" "Green"
++        return
++    }
++
++    # 检查常见安装位置
++    $commonPaths = @(
++        "$env:ProgramFiles\WezTerm\wezterm.exe",
++        "$env:LOCALAPPDATA\WezTerm\wezterm.exe"
++    )
++
++    foreach ($path in $commonPaths) {
++        if (Test-Path $path) {
++            Write-ColorOutput "✓ WezTerm 已安装: $path" "Green"
++            Write-ColorOutput "  提示: 可设置环境变量 CODEX_WEZTERM_BIN=$path" "Yellow"
++            return
++        }
++    }
++
++    # WezTerm 未找到，给出警告和建议
++    Write-ColorOutput "⚠️  未检测到 WezTerm" "Yellow"
++    Write-ColorOutput "   强烈建议安装 WezTerm: https://wezfurlong.org/wezterm/" "Yellow"
++    Write-ColorOutput "   或者使用 winget install wez.wezterm" "Yellow"
++
++    $continue = Read-Host "`n是否继续安装? (y/N)"
++    if ($continue -ne "y" -and $continue -ne "Y") {
++        Write-ColorOutput "安装已取消" "Yellow"
++        exit 0
++    }
++}
++
++# 主安装函数
++function Install-CCB {
++    param([string]$PythonCmd)
++
++    Write-ColorOutput "`n🚀 开始安装 Claude Code Bridge..." "Cyan"
++    Write-ColorOutput "   安装目录: $InstallPrefix" "Gray"
++    Write-ColorOutput "   可执行目录: $BinDir`n" "Gray"
++
++    # 确保 lib/installer.py 存在
++    $installerScript = Join-Path $PSScriptRoot "lib\installer.py"
++    if (-not (Test-Path $installerScript)) {
++        Write-ColorOutput "❌ 找不到安装器: $installerScript" "Red"
++        exit 1
++    }
++
++    # 调用 Python 安装器
++    try {
++        & $PythonCmd $installerScript install `
++            --install-prefix $InstallPrefix `
++            --bin-dir $BinDir `
++            --platform windows
++
++        if ($LASTEXITCODE -ne 0) {
++            throw "Python 安装器返回错误代码 $LASTEXITCODE"
++        }
++    }
++    catch {
++        Write-ColorOutput "`n❌ 安装失败: $_" "Red"
++        exit 1
++    }
++
++    # 检查 PATH 配置
++    Write-ColorOutput "`n🔍 检查 PATH 配置..." "Cyan"
++
++    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
++    $binDirResolved = [System.IO.Path]::GetFullPath($BinDir)
++
++    if ($currentPath -notlike "*$binDirResolved*") {
++        Write-ColorOutput "⚠️  可执行目录不在 PATH 中" "Yellow"
++        Write-ColorOutput "`n要添加到 PATH，请在 PowerShell 中运行:" "Yellow"
++        Write-ColorOutput "  [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$binDirResolved', 'User')" "White"
++        Write-ColorOutput "`n或者手动添加: 系统设置 → 环境变量 → 用户变量 → Path → 编辑 → 新建" "Gray"
++        Write-ColorOutput "  添加: $binDirResolved`n" "White"
++
++        # Git Bash 配置说明
++        Write-ColorOutput "📝 Git Bash 用户额外说明:" "Cyan"
++        Write-ColorOutput "  v2.1+ 已自动生成 Shell wrapper，支持 Git Bash 直接使用" "Gray"
++        Write-ColorOutput "  如需配置 PATH，在 ~/.bashrc 添加:" "Gray"
++        Write-ColorOutput "  export PATH=`"/c/Users/$env:USERNAME/AppData/Roaming/Scripts:`$PATH`"" "White"
++        Write-ColorOutput ""
++
++        $addPath = Read-Host "是否现在自动添加到 PATH? (y/N)"
++        if ($addPath -eq "y" -or $addPath -eq "Y") {
++            try {
++                $newPath = "$currentPath;$binDirResolved"
++                [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
++                $env:Path = "$env:Path;$binDirResolved"
++                Write-ColorOutput "✓ 已添加到 PATH" "Green"
++                Write-ColorOutput "  注意: 可能需要重启终端才能生效" "Yellow"
++                Write-ColorOutput "  Git Bash 用户需手动配置 ~/.bashrc" "Yellow"
++            }
++            catch {
++                Write-ColorOutput "❌ 自动添加失败: $_" "Red"
++                Write-ColorOutput "   请手动添加" "Yellow"
++            }
++        }
++    }
++    else {
++        Write-ColorOutput "✓ PATH 配置正确" "Green"
++        Write-ColorOutput "  Git Bash 用户: Shell wrapper 已生成，可直接使用" "Gray"
++    }
++
++    # 安装完成
++    Write-ColorOutput "`n✅ 安装完成!" "Green"
++    Write-ColorOutput "`n快速开始:" "Cyan"
++    Write-ColorOutput "  1. 重启终端 (如果修改了 PATH)" "White"
++    Write-ColorOutput "  2. 在 WezTerm 中运行: ccb up codex" "White"
++    Write-ColorOutput "  3. 在 Claude 中使用: cask `"你的问题`"" "White"
++    Write-ColorOutput "`n详细文档: WINDOWS_INSTALL.md" "Gray"
++}
++
++# 卸载函数
++function Uninstall-CCB {
++    param([string]$PythonCmd)
++
++    Write-ColorOutput "`n🗑️  开始卸载 Claude Code Bridge..." "Cyan"
++
++    $installerScript = Join-Path $PSScriptRoot "lib\installer.py"
++    if (-not (Test-Path $installerScript)) {
++        Write-ColorOutput "⚠️  找不到安装器，将手动清理" "Yellow"
++
++        # 手动删除文件
++        if (Test-Path $InstallPrefix) {
++            Remove-Item -Recurse -Force $InstallPrefix
++            Write-ColorOutput "✓ 已删除: $InstallPrefix" "Green"
++        }
++
++        # 删除可执行文件
++        $scripts = @("ccb", "cask", "cask-w", "cpend", "cping", "gask", "gask-w", "gpend", "gping")
++        foreach ($script in $scripts) {
++            $batFile = Join-Path $BinDir "$script.bat"
++            $pyFile = Join-Path $BinDir "$script.py"
++
++            if (Test-Path $batFile) { Remove-Item -Force $batFile }
++            if (Test-Path $pyFile) { Remove-Item -Force $pyFile }
++        }
++
++        Write-ColorOutput "✓ 已删除可执行文件" "Green"
++    }
++    else {
++        # 使用 Python 安装器卸载
++        try {
++            & $PythonCmd $installerScript uninstall `
++                --install-prefix $InstallPrefix `
++                --bin-dir $BinDir `
++                --platform windows
++
++            if ($LASTEXITCODE -ne 0) {
++                throw "Python 卸载器返回错误代码 $LASTEXITCODE"
++            }
++        }
++        catch {
++            Write-ColorOutput "`n❌ 卸载失败: $_" "Red"
++            exit 1
++        }
++    }
++
++    Write-ColorOutput "`n✅ 卸载完成!" "Green"
++    Write-ColorOutput "   注意: Claude 配置文件 (~\.claude\) 未被删除" "Gray"
++}
++
++# 更新函数
++function Update-CCB {
++    param([string]$PythonCmd)
++
++    Write-ColorOutput "`n🔄 更新 Claude Code Bridge..." "Cyan"
++
++    # 检查是否在 git 仓库中
++    if (Test-Path (Join-Path $PSScriptRoot ".git")) {
++        Write-ColorOutput "检测到 Git 仓库，执行 git pull..." "Gray"
++
++        try {
++            $gitOutput = git -C $PSScriptRoot pull
++            Write-ColorOutput $gitOutput "Gray"
++        }
++        catch {
++            Write-ColorOutput "⚠️  Git pull 失败: $_" "Yellow"
++            Write-ColorOutput "   继续执行安装..." "Yellow"
++        }
++    }
++
++    # 重新安装
++    Install-CCB -PythonCmd $PythonCmd
++}
++
++# 主逻辑
++function Main {
++    Write-ColorOutput @"
++╔═══════════════════════════════════════════════════════════╗
++║  Claude Code Bridge (ccb) - Windows 安装程序             ║
++║  版本: 2.1-windows                                        ║
++╚═══════════════════════════════════════════════════════════╝
++"@ "Cyan"
++
++    # 检查依赖
++    $pythonCmd = Test-PythonVersion
++
++    if ($Action -ne "uninstall") {
++        Test-WezTerm
++    }
++
++    # 执行操作
++    switch ($Action) {
++        "install" {
++            Install-CCB -PythonCmd $pythonCmd
++        }
++        "uninstall" {
++            Uninstall-CCB -PythonCmd $pythonCmd
++        }
++        "update" {
++            Update-CCB -PythonCmd $pythonCmd
++        }
++    }
++}
++
++# 执行主函数
++try {
++    Main
++}
++catch {
++    Write-ColorOutput "`n❌ 发生错误: $_" "Red"
++    Write-ColorOutput $_.ScriptStackTrace "Gray"
++    exit 1
++}
+Index: install.sh
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/install.sh b/install.sh
+--- a/install.sh	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/install.sh	(date 1766018323868)
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env bash
++ #!/usr/bin/env bash
+ set -euo pipefail
+ 
+ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+Index: lib/installer.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/lib/installer.py b/lib/installer.py
+new file mode 100644
+--- /dev/null	(date 1766022417772)
++++ b/lib/installer.py	(date 1766022417772)
+@@ -0,0 +1,545 @@
++#!/usr/bin/env python3
++"""
++Claude Code Bridge (ccb) 跨平台安装器核心
++支持 Windows / Linux / macOS
++
++版本: 2.1
++"""
++
++import argparse
++import json
++import os
++import platform
++import re
++import shutil
++import sys
++from pathlib import Path
++from typing import List, Optional
++
++
++class CCBInstaller:
++    """跨平台安装器核心类"""
++
++    def __init__(
++        self,
++        repo_root: Path,
++        install_prefix: Path,
++        bin_dir: Path,
++        platform_name: Optional[str] = None
++    ):
++        self.repo_root = Path(repo_root).resolve()
++        self.install_prefix = Path(install_prefix).expanduser().resolve()
++        self.bin_dir = Path(bin_dir).expanduser().resolve()
++        self.platform = platform_name or self._detect_platform()
++
++        # 需要安装的脚本
++        self.scripts = [
++            "ccb",
++            "bin/cask",
++            "bin/cask-w",
++            "bin/cpend",
++            "bin/cping",
++            "bin/gask",
++            "bin/gask-w",
++            "bin/gpend",
++            "bin/gping"
++        ]
++
++        # Claude 命令文档
++        self.claude_commands = [
++            "cask.md",
++            "cask-w.md",
++            "cpend.md",
++            "cping.md",
++            "gask.md",
++            "gask-w.md",
++            "gpend.md",
++            "gping.md"
++        ]
++
++    def _detect_platform(self) -> str:
++        """检测操作系统平台"""
++        system = platform.system().lower()
++        if system == "windows":
++            return "windows"
++        elif system == "darwin":
++            return "macos"
++        else:
++            return "linux"
++
++    def install(self) -> None:
++        """主安装流程"""
++        print(f"🚀 开始安装 (平台: {self.platform})")
++
++        self._check_dependencies()
++        self._copy_project()
++        self._install_scripts()
++        self._install_claude_commands()
++        self._configure_claude_md()
++        self._configure_settings_json()
++
++        print(f"✅ 安装完成")
++        print(f"   安装目录: {self.install_prefix}")
++        print(f"   可执行目录: {self.bin_dir}")
++
++    def _check_dependencies(self) -> None:
++        """检查依赖项"""
++        # Python 版本检查
++        if sys.version_info < (3, 8):
++            raise RuntimeError(
++                f"需要 Python 3.8+，当前版本: "
++                f"{sys.version_info.major}.{sys.version_info.minor}"
++            )
++        print(f"✓ Python {sys.version_info.major}.{sys.version_info.minor}")
++
++        # WezTerm 检查 (可选但推荐)
++        wezterm_bin = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
++
++        if wezterm_bin and Path(wezterm_bin).exists():
++            print(f"✓ WezTerm 已配置: {wezterm_bin}")
++        elif shutil.which("wezterm") or shutil.which("wezterm.exe"):
++            print("✓ WezTerm 已安装")
++        else:
++            print("⚠️  建议安装 WezTerm: https://wezfurlong.org/wezterm/")
++
++    def _copy_project(self) -> None:
++        """复制项目文件到安装目录"""
++        print(f"📦 复制项目文件...")
++
++        # 如果安装目录已存在，先删除
++        if self.install_prefix.exists():
++            shutil.rmtree(self.install_prefix)
++
++        # 创建安装目录
++        self.install_prefix.mkdir(parents=True, exist_ok=True)
++
++        # 需要复制的目录和文件
++        items_to_copy = ["ccb", "lib", "bin", "commands"]
++
++        for item in items_to_copy:
++            src = self.repo_root / item
++            dst = self.install_prefix / item
++
++            if not src.exists():
++                print(f"⚠️  跳过不存在的项: {item}")
++                continue
++
++            if src.is_file():
++                # 复制单个文件
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                shutil.copy2(src, dst)
++            elif src.is_dir():
++                # 复制整个目录
++                shutil.copytree(src, dst, dirs_exist_ok=True)
++
++        print(f"✓ 项目文件已复制到 {self.install_prefix}")
++
++    def _install_scripts(self) -> None:
++        """安装可执行脚本"""
++        print(f"🔧 安装可执行脚本...")
++
++        self.bin_dir.mkdir(parents=True, exist_ok=True)
++
++        if self.platform == "windows":
++            self._install_scripts_windows()
++        else:
++            self._install_scripts_unix()
++
++    def _generate_shell_wrapper(self, script_name: str, py_path: Path) -> str:
++        """生成 Git Bash 兼容的 shell wrapper"""
++        py_path_posix = py_path.as_posix()  # 转换为 POSIX 路径
++
++        return f'''#!/usr/bin/env bash
++# {script_name} - Windows Git Bash wrapper
++# 自动生成，请勿手动编辑
++
++set -euo pipefail
++
++# 检测运行环境
++if command -v py >/dev/null 2>&1; then
++    exec py "{py_path_posix}" "$@"
++elif command -v python3 >/dev/null 2>&1; then
++    exec python3 "{py_path_posix}" "$@"
++elif command -v python >/dev/null 2>&1; then
++    exec python "{py_path_posix}" "$@"
++else
++    echo "❌ 错误: 未找到 Python 解释器" >&2
++    exit 1
++fi
++'''
++
++    def _install_scripts_windows(self) -> None:
++        """Windows 脚本安装 (复制 + .bat wrapper)"""
++        # 检查 py launcher
++        has_py_launcher = shutil.which("py") is not None
++        installed_count = 0
++
++        for script_path in self.scripts:
++            script_name = Path(script_path).name
++            src = self.install_prefix / script_path
++
++            if not src.exists():
++                print(f"⚠️  跳过: {script_path} (源文件不存在)")
++                continue
++
++            # 复制 Python 脚本 (重命名为 .py)
++            py_dst = self.bin_dir / f"{script_name}.py"
++            shutil.copy2(src, py_dst)
++
++            # 创建 .bat wrapper
++            if has_py_launcher:
++                # 使用 py launcher (推荐)
++                bat_content = f'@echo off\npy "%~dp0\\{script_name}.py" %*\n'
++            else:
++                # 回退到 python 命令
++                bat_content = f'@echo off\npython "%~dp0\\{script_name}.py" %*\n'
++
++            bat_file = self.bin_dir / f"{script_name}.bat"
++            bat_file.write_text(bat_content, encoding="utf-8")
++
++            # 3. 创建 Shell wrapper (Git Bash/WSL)
++            sh_file = self.bin_dir / script_name  # 无扩展名
++            shell_content = self._generate_shell_wrapper(script_name, py_dst)
++            sh_file.write_text(shell_content, encoding="utf-8")
++
++            # 设置执行权限（Git Bash 需要）
++            try:
++                import stat
++                os.chmod(sh_file, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
++            except Exception as e:
++                print(f"⚠️  无法设置执行权限 {sh_file}: {e}")
++
++            installed_count += 1
++
++        print(f"✓ 已安装 {installed_count} 个脚本到 {self.bin_dir}")
++        print(f"  格式: .bat (CMD/PowerShell) + shell wrapper (Git Bash)")
++
++    def _install_scripts_unix(self) -> None:
++        """Unix 脚本安装 (符号链接)"""
++        installed_count = 0
++
++        for script_path in self.scripts:
++            script_name = Path(script_path).name
++            src = self.install_prefix / script_path
++            dst = self.bin_dir / script_name
++
++            if not src.exists():
++                print(f"⚠️  跳过: {script_path} (源文件不存在)")
++                continue
++
++            # 添加执行权限
++            try:
++                os.chmod(src, 0o755)
++            except Exception as e:
++                print(f"⚠️  无法设置执行权限 {src}: {e}")
++
++            # 创建或更新符号链接
++            if dst.exists() or dst.is_symlink():
++                dst.unlink()
++
++            try:
++                dst.symlink_to(src)
++                installed_count += 1
++            except Exception as e:
++                print(f"⚠️  无法创建符号链接 {dst}: {e}")
++
++        print(f"✓ 已安装 {installed_count} 个脚本到 {self.bin_dir}")
++
++    def _install_claude_commands(self) -> None:
++        """安装 Claude 命令定义文件"""
++        print(f"📝 安装 Claude 命令...")
++
++        # 检测 Claude 命令目录
++        claude_dir = self._detect_claude_dir()
++        claude_dir.mkdir(parents=True, exist_ok=True)
++
++        commands_src = self.repo_root / "commands"
++        if not commands_src.exists():
++            print(f"⚠️  命令源目录不存在: {commands_src}")
++            return
++
++        installed_count = 0
++        for cmd_file in self.claude_commands:
++            src = commands_src / cmd_file
++            dst = claude_dir / cmd_file
++
++            if src.exists():
++                shutil.copy2(src, dst)
++                installed_count += 1
++
++        print(f"✓ 已安装 {installed_count} 个 Claude 命令到 {claude_dir}")
++
++    def _detect_claude_dir(self) -> Path:
++        """检测 Claude 命令目录"""
++        home = Path.home()
++
++        if self.platform == "windows":
++            # Windows 路径候选
++            candidates = [
++                home / ".claude" / "commands",
++                Path(os.environ.get("APPDATA", home)) / ".claude" / "commands"
++            ]
++        else:
++            # Unix 路径候选
++            candidates = [
++                home / ".claude" / "commands",
++                home / ".config" / "claude" / "commands",
++                home / ".local" / "share" / "claude" / "commands"
++            ]
++
++        # 返回第一个存在的目录
++        for candidate in candidates:
++            if candidate.exists():
++                return candidate
++
++        # 如果都不存在，返回默认位置
++        return home / ".claude" / "commands"
++
++    def _configure_claude_md(self) -> None:
++        """配置 CLAUDE.md 全局协作规则"""
++        print(f"🔧 配置 Claude 协作规则...")
++
++        home = Path.home()
++        claude_md = home / ".claude" / "CLAUDE.md"
++        claude_md.parent.mkdir(parents=True, exist_ok=True)
++
++        # 读取现有内容
++        if claude_md.exists():
++            content = claude_md.read_text(encoding="utf-8")
++        else:
++            content = ""
++
++        # 移除旧的协作规则
++        patterns = [
++            r'## Codex Collaboration Rules.*?(?=\n## |\Z)',
++            r'## Codex 协作规则.*?(?=\n## |\Z)',
++            r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
++            r'## Gemini 协作规则.*?(?=\n## |\Z)',
++        ]
++
++        for pattern in patterns:
++            content = re.sub(pattern, '', content, flags=re.DOTALL)
++
++        # 添加新的协作规则
++        rules = """
++## Codex Collaboration Rules
++Codex is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Codex:
++
++Fast path (minimize latency):
++- If the user message starts with any of: `调取codex`, `@codex`, `codex:`, `codex：`, `问codex`, `让codex` then immediately run:
++  - `cask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like cping)
++- If user message is only the prefix (no content), ask a 1-line clarification for what to send.
++
++Trigger conditions (any match):
++- User mentions codex/Codex with questioning/requesting tone
++- User wants codex to do something, give advice, or help review
++- User asks about codex's status or previous reply
++
++Command selection:
++- Default ask/collaborate → `cask-w "<question>"` (sync, waits for reply)
++- Send without waiting → `cask "<question>"` (async, returns immediately)
++- Check connectivity → `cping`
++- View previous reply → `cpend`
++
++Examples:
++- "what does codex think" → cask-w
++- "ask codex to review this" → cask-w
++- "is codex alive" → cping
++- "don't wait for reply" → cask
++
++## Gemini Collaboration Rules
++Gemini is another AI assistant running via tmux. When user intent involves asking/consulting/collaborating with Gemini:
++
++Fast path (minimize latency):
++- If the user message starts with any of: `调取gemini`, `@gemini`, `gemini:`, `gemini：`, `问gemini`, `让gemini` then immediately run:
++  - `gask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like gping)
++- If user message is only the prefix (no content), ask a 1-line clarification for what to send.
++
++Trigger conditions (any match):
++- User mentions gemini/Gemini with questioning/requesting tone
++- User wants gemini to do something, give advice, or help review
++- User asks about gemini's status or previous reply
++
++Command selection:
++- Default ask/collaborate → `gask-w "<question>"` (sync, waits for reply)
++- Send without waiting → `gask "<question>"` (async, returns immediately)
++- Check connectivity → `gping`
++- View previous reply → `gpend`
++
++Examples:
++- "what does gemini think" → gask-w
++- "ask gemini to review this" → gask-w
++- "is gemini alive" → gping
++- "don't wait for reply" → gask
++"""
++
++        # 写入配置
++        content = content.rstrip() + "\n" + rules
++        claude_md.write_text(content, encoding="utf-8")
++
++        print(f"✓ 已更新: {claude_md}")
++
++    def _configure_settings_json(self) -> None:
++        """配置 Claude settings.json 权限"""
++        print(f"🔧 配置 Claude 权限...")
++
++        home = Path.home()
++        settings_file = home / ".claude" / "settings.json"
++        settings_file.parent.mkdir(parents=True, exist_ok=True)
++
++        # 需要添加的权限
++        perms_to_add = [
++            'Bash(cask:*)',
++            'Bash(cask-w:*)',
++            'Bash(cpend)',
++            'Bash(cping)',
++            'Bash(gask:*)',
++            'Bash(gask-w:*)',
++            'Bash(gpend)',
++            'Bash(gping)'
++        ]
++
++        # 读取或创建配置
++        if settings_file.exists():
++            try:
++                data = json.loads(settings_file.read_text(encoding="utf-8"))
++            except json.JSONDecodeError:
++                print(f"⚠️  settings.json 格式错误，将重新创建")
++                data = {}
++        else:
++            data = {}
++
++        # 确保权限结构存在
++        if "permissions" not in data:
++            data["permissions"] = {"allow": [], "deny": []}
++        if "allow" not in data["permissions"]:
++            data["permissions"]["allow"] = []
++
++        # 添加权限 (去重)
++        allow_list = data["permissions"]["allow"]
++        added_count = 0
++
++        for perm in perms_to_add:
++            if perm not in allow_list:
++                allow_list.append(perm)
++                added_count += 1
++
++        # 写回文件
++        settings_file.write_text(
++            json.dumps(data, indent=2, ensure_ascii=False),
++            encoding="utf-8"
++        )
++
++        print(f"✓ 已添加 {added_count} 个权限到 {settings_file}")
++
++    def uninstall(self) -> None:
++        """卸载"""
++        print("🗑️  开始卸载...")
++
++        # 删除安装目录
++        if self.install_prefix.exists():
++            shutil.rmtree(self.install_prefix)
++            print(f"✓ 已删除: {self.install_prefix}")
++
++        # 删除可执行文件
++        removed_count = 0
++        for script_path in self.scripts:
++            script_name = Path(script_path).name
++
++            if self.platform == "windows":
++                # Windows: 删除 .py, .bat 和 shell wrapper
++                for ext in [".py", ".bat", ""]:  # 新增空字符串（无扩展名 wrapper）
++                    file_path = self.bin_dir / f"{script_name}{ext}"
++                    if file_path.exists():
++                        file_path.unlink()
++                        removed_count += 1
++            else:
++                # Unix: 删除符号链接
++                file_path = self.bin_dir / script_name
++                if file_path.exists() or file_path.is_symlink():
++                    file_path.unlink()
++                    removed_count += 1
++
++        print(f"✓ 已删除 {removed_count} 个可执行文件")
++
++        # 删除 Claude 命令 (可选)
++        claude_dir = self._detect_claude_dir()
++        if claude_dir.exists():
++            removed_cmds = 0
++            for cmd_file in self.claude_commands:
++                file_path = claude_dir / cmd_file
++                if file_path.exists():
++                    file_path.unlink()
++                    removed_cmds += 1
++            print(f"✓ 已删除 {removed_cmds} 个 Claude 命令")
++
++        print("✅ 卸载完成")
++        print(f"   注意: Claude 配置文件 ({Path.home() / '.claude'}) 未被删除")
++
++
++def main():
++    """主函数"""
++    parser = argparse.ArgumentParser(
++        description="Claude Code Bridge (ccb) 跨平台安装器",
++        formatter_class=argparse.RawDescriptionHelpFormatter
++    )
++
++    parser.add_argument(
++        "action",
++        choices=["install", "uninstall"],
++        help="执行的操作"
++    )
++    parser.add_argument(
++        "--install-prefix",
++        type=Path,
++        help="安装目录路径"
++    )
++    parser.add_argument(
++        "--bin-dir",
++        type=Path,
++        help="可执行文件目录路径"
++    )
++    parser.add_argument(
++        "--platform",
++        choices=["windows", "linux", "macos"],
++        help="目标平台 (自动检测)"
++    )
++
++    args = parser.parse_args()
++
++    # 确定路径
++    repo_root = Path(__file__).resolve().parent.parent
++
++    if args.platform == "windows":
++        install_prefix = args.install_prefix or Path(os.environ["APPDATA"]) / "codex-dual"
++        bin_dir = args.bin_dir or Path(os.environ["APPDATA"]) / "Scripts"
++    else:
++        install_prefix = args.install_prefix or Path.home() / ".local/share/codex-dual"
++        bin_dir = args.bin_dir or Path.home() / ".local/bin"
++
++    # 创建安装器实例
++    installer = CCBInstaller(
++        repo_root,
++        install_prefix,
++        bin_dir,
++        args.platform
++    )
++
++    # 执行操作
++    try:
++        if args.action == "install":
++            installer.install()
++        else:
++            installer.uninstall()
++
++        sys.exit(0)
++
++    except Exception as e:
++        print(f"\n❌ 错误: {e}", file=sys.stderr)
++        import traceback
++        traceback.print_exc()
++        sys.exit(1)
++
++
++if __name__ == "__main__":
++    main()
+Index: bin/gpend
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/gpend b/bin/gpend
+--- a/bin/gpend	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/gpend	(date 1766020993428)
+@@ -3,11 +3,28 @@
+ gpend - 查看 Gemini 最新回复
+ """
+ 
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ try:
+Index: bin/cpend
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/cpend b/bin/cpend
+--- a/bin/cpend	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/cpend	(date 1766020961340)
+@@ -4,11 +4,28 @@
+ """
+ 
+ import json
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ try:
+Index: bin/gask
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/gask b/bin/gask
+--- a/bin/gask	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/gask	(date 1766020962690)
+@@ -5,11 +5,28 @@
+ 
+ from __future__ import annotations
+ 
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ from gemini_comm import GeminiCommunicator
+Index: bin/gping
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/gping b/bin/gping
+--- a/bin/gping	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/gping	(date 1766020994082)
+@@ -3,11 +3,28 @@
+ gping - 测试 Gemini 连通性
+ """
+ 
++import os
+ import sys
+ from pathlib import Path
+ 
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ try:
+Index: bin/cping
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bin/cping b/bin/cping
+--- a/bin/cping	(revision acdb42e15193d62398f6460571f21a07a82ec921)
++++ b/bin/cping	(date 1766020962006)
+@@ -8,9 +8,24 @@
+ import os
+ from pathlib import Path
+ 
+-# 添加lib目录到Python路径
+-script_dir = Path(__file__).resolve().parent
+-lib_dir = script_dir.parent / "lib"
++
++def _find_lib_dir() -> Path:
++    """查找 lib 目录 (兼容各种安装方式)"""
++    script_path = Path(__file__).resolve()
++    candidate = script_path.parent.parent / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    if os.environ.get("APPDATA"):
++        candidate = Path(os.environ["APPDATA"]) / "codex-dual" / "lib"
++        if candidate.is_dir() and (candidate / "terminal.py").exists():
++            return candidate
++    candidate = Path.home() / ".local" / "share" / "codex-dual" / "lib"
++    if candidate.is_dir() and (candidate / "terminal.py").exists():
++        return candidate
++    return script_path.parent.parent / "lib"
++
++
++lib_dir = _find_lib_dir()
+ sys.path.insert(0, str(lib_dir))
+ 
+ try:
