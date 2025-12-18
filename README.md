@@ -1,12 +1,12 @@
 <div align="center">
 
-# Claude Code Bridge (ccb) v2.0 alpha
+# Claude Code Bridge (ccb) v2.1
 
 **🌍 Cross-Platform Multi-AI Collaboration: Claude + Codex + Gemini**
 
 **Windows | macOS | Linux — One Tool, All Platforms**
 
-[![Version](https://img.shields.io/badge/version-2.0_alpha-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-2.1-orange.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -23,7 +23,7 @@
 
 ---
 
-## 🎉 What's New in v2.0
+## 🎉 What's New in v2.1
 
 > **🪟 Full Windows Support via [WezTerm](https://wezfurlong.org/wezterm/)**
 > WezTerm is now the recommended terminal for all platforms. It's a powerful, cross-platform terminal with native split-pane support. Linux/macOS users: give it a try! tmux remains supported.
@@ -95,8 +95,18 @@ cd claude_code_bridge
 - **WSL2 (recommended):** run the same commands inside WSL.
 - **Native Windows (PowerShell/CMD):** use the wrappers:
   - `install.cmd install`
-  - or `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install`
+  - or `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install` (you will be prompted for `BackendEnv`)
 - **WezTerm-only (no tmux):** run `ccb` inside WezTerm, or set `CCB_TERMINAL=wezterm` (and if needed `CODEX_WEZTERM_BIN` to `wezterm.exe`).
+
+### BackendEnv (Important for Windows/WSL)
+
+ccb and codex/gemini must run in the same environment. Otherwise you may see:
+- `exit code 127` (command not found)
+- `cpend`/`gpend` cannot find replies (different session directories)
+
+Install-time selection is persisted to `ccb_config.json` (or override with `CCB_BACKEND_ENV`):
+- `BackendEnv=wsl`: codex/gemini runs in WSL (recommended if you type `codex` inside a WSL shell).
+- `BackendEnv=windows`: codex/gemini runs as native Windows CLI.
 
 ## Start
 
@@ -184,7 +194,7 @@ ccb update              # Update to latest version
 
 # 中文
 
-## 🎉 v2.0 新特性
+## 🎉 v2.1 新特性
 
 > **🪟 全面支持 Windows — 通过 [WezTerm](https://wezfurlong.org/wezterm/)**
 > WezTerm 现已成为所有平台的推荐终端。它是一个强大的跨平台终端，原生支持分屏。Linux/macOS 用户也推荐使用！当然短期tmux仍然支持。
@@ -270,8 +280,18 @@ cd claude_code_bridge
 - **推荐 WSL2：** 在 WSL 内执行上面的命令即可。
 - **原生 Windows（PowerShell/CMD）：** 使用包装脚本：
   - `install.cmd install`
-  - 或 `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install`
+  - 或 `powershell -ExecutionPolicy Bypass -File .\\install.ps1 install`（会提示选择 `BackendEnv`）
 - **仅 WezTerm（无 tmux）：** 建议在 WezTerm 中运行 `ccb`，或设置 `CCB_TERMINAL=wezterm`（必要时设置 `CODEX_WEZTERM_BIN=wezterm.exe`）。
+
+### BackendEnv（Windows/WSL 必看）
+
+`ccb/cask-w` 必须和 `codex/gemini` 在同一环境运行，否则可能出现：
+- `exit code 127`（找不到命令）
+- `cpend/gpend` 读不到回复（会话目录不同）
+
+安装时的选择会写入 `ccb_config.json`（也可用环境变量 `CCB_BACKEND_ENV` 覆盖）：
+- `BackendEnv=wsl`：codex/gemini 安装并运行在 WSL（如果你是在 WSL 里直接输入 `codex` 的场景，推荐选这个）
+- `BackendEnv=windows`：codex/gemini 为 Windows 原生 CLI
 
 
 
