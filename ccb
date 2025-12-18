@@ -914,7 +914,32 @@ def cmd_update(args):
         tmp_dir.mkdir(parents=True, exist_ok=True)
         tarball_path = tmp_dir / "main.tar.gz"
 
-        urllib.request.urlretrieve(tarball_url, tarball_path)
+        # 优先使用 curl/wget（更好的证书处理）
+        downloaded = False
+        if shutil.which("curl"):
+            result = subprocess.run(
+                ["curl", "-fsSL", "-o", str(tarball_path), tarball_url],
+                capture_output=True
+            )
+            downloaded = result.returncode == 0
+        if not downloaded and shutil.which("wget"):
+            result = subprocess.run(
+                ["wget", "-q", "-O", str(tarball_path), tarball_url],
+                capture_output=True
+            )
+            downloaded = result.returncode == 0
+        if not downloaded:
+            # 回退到 urllib（可能有 SSL 问题）
+            import ssl
+            try:
+                urllib.request.urlretrieve(tarball_url, tarball_path)
+            except ssl.SSLError:
+                print("⚠️ SSL 证书验证失败，尝试跳过验证...")
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(tarball_url, context=ctx) as resp:
+                    tarball_path.write_bytes(resp.read())
 
         print("📂 Extracting...")
         def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
