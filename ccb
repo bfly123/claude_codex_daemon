@@ -25,6 +25,21 @@ script_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(script_dir / "lib"))
 from terminal import TmuxBackend, WeztermBackend, detect_terminal, is_wsl, get_shell_type
 
+VERSION = "2.1"
+
+
+def _get_git_info() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(script_dir), "log", "-1", "--format=%h %ci"],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
 
 def _build_keep_open_cmd(provider: str, start_cmd: str) -> str:
     if get_shell_type() == "powershell":
@@ -631,7 +646,9 @@ exec tmux attach -t "$TMUX_SESSION"
         print("✅ 清理完成")
 
     def run_up(self) -> int:
-        print(f"🚀 Claude AI 启动器")
+        git_info = _get_git_info()
+        version_str = f"v{VERSION}" + (f" ({git_info})" if git_info else "")
+        print(f"🚀 Claude Code Bridge {version_str}")
         print(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"🔌 后端: {', '.join(self.providers)}")
         print("=" * 50)
