@@ -219,6 +219,38 @@ has_wezterm() {
   return 1
 }
 
+detect_wezterm_path() {
+  local wezterm_override="${CODEX_WEZTERM_BIN:-${WEZTERM_BIN:-}}"
+  if [[ -n "${wezterm_override}" ]] && [[ -f "${wezterm_override}" ]]; then
+    echo "${wezterm_override}"
+    return
+  fi
+  local found
+  found="$(command -v wezterm 2>/dev/null)" && [[ -n "$found" ]] && echo "$found" && return
+  found="$(command -v wezterm.exe 2>/dev/null)" && [[ -n "$found" ]] && echo "$found" && return
+  if is_wsl; then
+    for drive in c d e f; do
+      for path in "/mnt/${drive}/Program Files/WezTerm/wezterm.exe" \
+                  "/mnt/${drive}/Program Files (x86)/WezTerm/wezterm.exe"; do
+        if [[ -f "$path" ]]; then
+          echo "$path"
+          return
+        fi
+      done
+    done
+  fi
+}
+
+save_wezterm_config() {
+  local wezterm_path
+  wezterm_path="$(detect_wezterm_path)"
+  if [[ -n "$wezterm_path" ]]; then
+    mkdir -p "$HOME/.config/ccb"
+    echo "CODEX_WEZTERM_BIN=${wezterm_path}" > "$HOME/.config/ccb/env"
+    echo "✓ WezTerm 路径已缓存: $wezterm_path"
+  fi
+}
+
 copy_project() {
   local staging
   staging="$(mktemp -d)"
@@ -516,6 +548,7 @@ install_requirements() {
 install_all() {
   install_requirements
   remove_codex_mcp
+  save_wezterm_config
   copy_project
   install_bin_links
   install_claude_commands

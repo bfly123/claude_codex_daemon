@@ -22,20 +22,58 @@ def is_wsl() -> bool:
         return False
 
 
+def _load_cached_wezterm_bin() -> str | None:
+    """读取安装时缓存的 WezTerm 路径"""
+    config = Path.home() / ".config/ccb/env"
+    if config.exists():
+        try:
+            for line in config.read_text().splitlines():
+                if line.startswith("CODEX_WEZTERM_BIN="):
+                    path = line.split("=", 1)[1].strip()
+                    if path and Path(path).exists():
+                        return path
+        except Exception:
+            pass
+    return None
+
+
+_cached_wezterm_bin: str | None = None
+
+
+def _get_wezterm_bin() -> str | None:
+    """获取 WezTerm 路径（带缓存）"""
+    global _cached_wezterm_bin
+    if _cached_wezterm_bin:
+        return _cached_wezterm_bin
+    # 优先级: 环境变量 > 安装缓存 > PATH > 硬编码路径
+    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
+    if override and Path(override).exists():
+        _cached_wezterm_bin = override
+        return override
+    cached = _load_cached_wezterm_bin()
+    if cached:
+        _cached_wezterm_bin = cached
+        return cached
+    found = shutil.which("wezterm") or shutil.which("wezterm.exe")
+    if found:
+        _cached_wezterm_bin = found
+        return found
+    if is_wsl():
+        for drive in "cdef":
+            for path in [f"/mnt/{drive}/Program Files/WezTerm/wezterm.exe",
+                         f"/mnt/{drive}/Program Files (x86)/WezTerm/wezterm.exe"]:
+                if Path(path).exists():
+                    _cached_wezterm_bin = path
+                    return path
+    return None
+
+
 def _is_windows_wezterm() -> bool:
     """检测 WezTerm 是否运行在 Windows 上"""
-    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
-    if override and "/mnt/c/" in override:
-        return True
-    if is_wsl():
-        candidates = [
-            "/mnt/c/Program Files/WezTerm/wezterm.exe",
-            "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe",
-        ]
-        for c in candidates:
-            if Path(c).exists():
-                return True
-    return False
+    wezterm_bin = _get_wezterm_bin()
+    if not wezterm_bin:
+        return False
+    return ".exe" in wezterm_bin.lower() or "/mnt/" in wezterm_bin
 
 
 def _default_shell() -> tuple[str, str]:
@@ -124,21 +162,7 @@ class WeztermBackend(TerminalBackend):
     def _bin(cls) -> str:
         if cls._wezterm_bin:
             return cls._wezterm_bin
-        override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
-        if override:
-            cls._wezterm_bin = override
-            return override
-        found = shutil.which("wezterm") or shutil.which("wezterm.exe")
-        if not found and is_wsl():
-            # Common Windows install locations (WSL interop may not expose Windows PATH).
-            candidates = [
-                "/mnt/c/Program Files/WezTerm/wezterm.exe",
-                "/mnt/c/Program Files (x86)/WezTerm/wezterm.exe",
-            ]
-            for candidate in candidates:
-                if Path(candidate).exists():
-                    found = candidate
-                    break
+        found = _get_wezterm_bin()
         cls._wezterm_bin = found or "wezterm"
         return cls._wezterm_bin
 
@@ -207,10 +231,7 @@ def detect_terminal() -> Optional[str]:
         return "wezterm"
     if os.environ.get("TMUX"):
         return "tmux"
-    override = os.environ.get("CODEX_WEZTERM_BIN") or os.environ.get("WEZTERM_BIN")
-    if override and Path(override).expanduser().exists():
-        return "wezterm"
-    if shutil.which("wezterm") or shutil.which("wezterm.exe"):
+    if _get_wezterm_bin():
         return "wezterm"
     if shutil.which("tmux") or shutil.which("tmux.exe"):
         return "tmux"
