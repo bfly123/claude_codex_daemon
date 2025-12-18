@@ -8,7 +8,7 @@
 
 [![Version](https://img.shields.io/badge/version-2.0_alpha-orange.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 
 [English](#english) | [中文](#中文)
@@ -171,7 +171,7 @@ ccb update              # Update to latest version
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - tmux or WezTerm (at least one; WezTerm recommended)
 
 ## Uninstall
@@ -349,7 +349,7 @@ ccb update              # 更新到最新版本
 
 ## 依赖
 
-- Python 3.8+
+- Python 3.10+
 - tmux 或 WezTerm（至少安装一个），强烈推荐wezterm
 
 

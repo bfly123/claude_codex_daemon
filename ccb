@@ -23,14 +23,25 @@ from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(script_dir / "lib"))
-from terminal import TmuxBackend, WeztermBackend, detect_terminal
+from terminal import TmuxBackend, WeztermBackend, detect_terminal, is_wsl, get_shell_type
 
 
-def is_wsl() -> bool:
-    try:
-        return "microsoft" in Path("/proc/version").read_text().lower()
-    except Exception:
-        return False
+def _build_keep_open_cmd(provider: str, start_cmd: str) -> str:
+    if get_shell_type() == "powershell":
+        return (
+            f'{start_cmd}; '
+            f'$code = $LASTEXITCODE; '
+            f'Write-Host "`n[{provider}] exited with code $code. Press Enter to close..."; '
+            f'Read-Host; '
+            f'exit $code'
+        )
+    return (
+        f'{start_cmd}; '
+        f'code=$?; '
+        f'echo; echo "[{provider}] exited with code $code. Press Enter to close..."; '
+        f'read -r _; '
+        f'exit $code'
+    )
 
 
 class AILauncher:
@@ -125,16 +136,9 @@ class AILauncher:
         runtime.mkdir(parents=True, exist_ok=True)
 
         start_cmd = self._get_start_cmd(provider)
-        # WezTerm 分屏里，进程退出会导致 pane 直接关闭；默认保持 pane 打开便于查看退出信息。
         keep_open = os.environ.get("CODEX_WEZTERM_KEEP_OPEN", "1").lower() not in {"0", "false", "no", "off"}
         if keep_open:
-            start_cmd = (
-                f"{start_cmd}; "
-                f"code=$?; "
-                f'echo; echo \"[{provider}] exited with code $code. Press Enter to close...\"; '
-                f"read -r _; "
-                f"exit $code"
-            )
+            start_cmd = _build_keep_open_cmd(provider, start_cmd)
         # Layout: first backend splits to the right of current pane, subsequent backends stack below
         # the first backend pane to form a right-side column (top/bottom).
         direction = "right" if not self.wezterm_panes else "bottom"
@@ -702,7 +706,7 @@ def cmd_status(args):
             if terminal == "wezterm" and pane_id:
                 backend = WeztermBackend()
                 alive = backend.is_alive(pane_id)
-            elif pane_id:
+            elif pane_id and shutil.which("tmux"):
                 result = subprocess.run(["tmux", "has-session", "-t", pane_id], capture_output=True)
                 alive = result.returncode == 0
             else:
@@ -745,7 +749,7 @@ def cmd_kill(args):
             if terminal == "wezterm" and pane_id:
                 backend = WeztermBackend()
                 backend.kill_pane(pane_id)
-            elif pane_id:
+            elif pane_id and shutil.which("tmux"):
                 subprocess.run(["tmux", "kill-session", "-t", pane_id], stderr=subprocess.DEVNULL)
                 subprocess.run(["tmux", "kill-session", "-t", f"launcher-{pane_id}"], stderr=subprocess.DEVNULL)
 
@@ -780,7 +784,7 @@ def cmd_restore(args):
                 if backend.is_alive(pane_id):
                     backend.activate(pane_id)
                     return 0
-            elif pane_id:
+            elif pane_id and shutil.which("tmux"):
                 result = subprocess.run(["tmux", "has-session", "-t", pane_id], capture_output=True)
                 if result.returncode == 0:
                     subprocess.run(["tmux", "attach-session", "-t", pane_id])

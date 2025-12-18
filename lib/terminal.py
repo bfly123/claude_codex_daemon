@@ -2,12 +2,40 @@
 from __future__ import annotations
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
+
+
+def is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
+def is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+
+
+def _default_shell() -> tuple[str, str]:
+    if is_windows():
+        for shell in ["pwsh", "powershell"]:
+            if shutil.which(shell):
+                return shell, "-Command"
+        return "powershell", "-Command"
+    return "bash", "-c"
+
+
+def get_shell_type() -> str:
+    shell, _ = _default_shell()
+    if shell in ("pwsh", "powershell"):
+        return "powershell"
+    return "bash"
 
 
 class TerminalBackend(ABC):
@@ -61,13 +89,6 @@ class TmuxBackend(TerminalBackend):
 class WeztermBackend(TerminalBackend):
     _wezterm_bin: Optional[str] = None
 
-    @staticmethod
-    def _is_wsl() -> bool:
-        try:
-            return "microsoft" in Path("/proc/version").read_text().lower()
-        except Exception:
-            return False
-
     @classmethod
     def _cli_base_args(cls) -> list[str]:
         args = [cls._bin(), "cli"]
@@ -89,7 +110,7 @@ class WeztermBackend(TerminalBackend):
             cls._wezterm_bin = override
             return override
         found = shutil.which("wezterm") or shutil.which("wezterm.exe")
-        if not found and cls._is_wsl():
+        if not found and is_wsl():
             # Common Windows install locations (WSL interop may not expose Windows PATH).
             candidates = [
                 "/mnt/c/Program Files/WezTerm/wezterm.exe",
@@ -153,7 +174,8 @@ class WeztermBackend(TerminalBackend):
         args.extend(["--percent", str(percent)])
         if parent_pane:
             args.extend(["--pane-id", parent_pane])
-        args.extend(["--", "bash", "-c", cmd])
+        shell, flag = _default_shell()
+        args.extend(["--", shell, flag, cmd])
         result = subprocess.run(args, capture_output=True, text=True, check=True)
         return result.stdout.strip()
 

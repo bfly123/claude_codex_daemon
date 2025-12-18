@@ -88,6 +88,18 @@ require_command() {
   fi
 }
 
+require_python_version() {
+  # ccb requires Python 3.10+ (PEP 604 type unions: `str | None`, etc.)
+  local version
+  version="$(python3 -c 'import sys; print("{}.{}.{}".format(sys.version_info[0], sys.version_info[1], sys.version_info[2]))' 2>/dev/null || echo unknown)"
+  if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+    echo "❌ Python 版本过低: $version"
+    echo "   需要 Python 3.10+，请升级后重试"
+    exit 1
+  fi
+  echo "✓ Python $version"
+}
+
 # 根据 uname 返回 linux / macos / unknown
 detect_platform() {
   local name
@@ -488,6 +500,7 @@ with open('$settings_file', 'w') as f:
 install_requirements() {
   check_wsl_compatibility
   require_command python3 python3
+  require_python_version
   require_terminal_backend
   if ! has_wezterm; then
     echo
