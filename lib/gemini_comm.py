@@ -372,12 +372,20 @@ class GeminiCommunicator:
 
     def _load_session_info(self):
         if "GEMINI_SESSION_ID" in os.environ:
+            terminal = os.environ.get("GEMINI_TERMINAL", "tmux")
+            # 根据终端类型获取正确的 pane_id
+            if terminal == "wezterm":
+                pane_id = os.environ.get("GEMINI_WEZTERM_PANE", "")
+            elif terminal == "iterm2":
+                pane_id = os.environ.get("GEMINI_ITERM2_PANE", "")
+            else:
+                pane_id = ""
             return {
                 "session_id": os.environ["GEMINI_SESSION_ID"],
                 "runtime_dir": os.environ["GEMINI_RUNTIME_DIR"],
-                "terminal": os.environ.get("GEMINI_TERMINAL", "tmux"),
+                "terminal": terminal,
                 "tmux_session": os.environ.get("GEMINI_TMUX_SESSION", ""),
-                "pane_id": os.environ.get("GEMINI_WEZTERM_PANE", ""),
+                "pane_id": pane_id,
                 "_session_file": None,
             }
 
