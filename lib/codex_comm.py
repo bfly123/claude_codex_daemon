@@ -543,7 +543,13 @@ class CodexCommunicator:
                 with tmp_file.open("w", encoding="utf-8") as handle:
                     json.dump(data, handle, ensure_ascii=False, indent=2)
                 os.replace(tmp_file, project_file)
-            except Exception:
+            except PermissionError as e:
+                print(f"⚠️  无法更新 {project_file.name}: {e}", file=sys.stderr)
+                print(f"💡 尝试: sudo chown $USER:$USER {project_file}", file=sys.stderr)
+                if tmp_file.exists():
+                    tmp_file.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"⚠️  更新 {project_file.name} 失败: {e}", file=sys.stderr)
                 if tmp_file.exists():
                     tmp_file.unlink(missing_ok=True)
 

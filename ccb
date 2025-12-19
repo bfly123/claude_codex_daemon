@@ -26,6 +26,7 @@ sys.path.insert(0, str(script_dir / "lib"))
 from terminal import TmuxBackend, WeztermBackend, Iterm2Backend, detect_terminal, is_wsl, get_shell_type
 from compat import setup_windows_encoding
 from ccb_config import get_backend_env
+from session_utils import safe_write_session, check_session_writable
 
 setup_windows_encoding()
 
@@ -537,6 +538,14 @@ exec tmux attach -t "$TMUX_SESSION"
 
     def _write_codex_session(self, runtime, tmux_session, input_fifo, output_fifo, pane_id=None):
         session_file = Path.cwd() / ".codex-session"
+
+        # 预检查权限
+        writable, reason, fix = check_session_writable(session_file)
+        if not writable:
+            print(f"❌ 无法写入 {session_file.name}: {reason}", file=sys.stderr)
+            print(f"💡 解决方案: {fix}", file=sys.stderr)
+            return False
+
         data = {}
         if session_file.exists():
             try:
@@ -557,10 +566,23 @@ exec tmux attach -t "$TMUX_SESSION"
             "active": True,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
-        session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+        ok, err = safe_write_session(session_file, json.dumps(data, ensure_ascii=False, indent=2))
+        if not ok:
+            print(err, file=sys.stderr)
+            return False
+        return True
 
     def _write_gemini_session(self, runtime, tmux_session, pane_id=None):
         session_file = Path.cwd() / ".gemini-session"
+
+        # 预检查权限
+        writable, reason, fix = check_session_writable(session_file)
+        if not writable:
+            print(f"❌ 无法写入 {session_file.name}: {reason}", file=sys.stderr)
+            print(f"💡 解决方案: {fix}", file=sys.stderr)
+            return False
+
         data = {
             "session_id": self.session_id,
             "runtime_dir": str(runtime),
@@ -571,7 +593,12 @@ exec tmux attach -t "$TMUX_SESSION"
             "active": True,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
-        session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+        ok, err = safe_write_session(session_file, json.dumps(data, ensure_ascii=False, indent=2))
+        if not ok:
+            print(err, file=sys.stderr)
+            return False
+        return True
 
     def _claude_project_dir(self, work_dir: Path) -> Path:
         projects_root = Path.home() / ".claude" / "projects"
