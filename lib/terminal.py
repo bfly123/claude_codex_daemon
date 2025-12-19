@@ -153,6 +153,98 @@ class TmuxBackend(TerminalBackend):
         return session_name
 
 
+class Iterm2Backend(TerminalBackend):
+    """iTerm2 后端，使用 it2 CLI (pip install it2)"""
+    _it2_bin: Optional[str] = None
+
+    @classmethod
+    def _bin(cls) -> str:
+        if cls._it2_bin:
+            return cls._it2_bin
+        override = os.environ.get("CODEX_IT2_BIN") or os.environ.get("IT2_BIN")
+        if override:
+            cls._it2_bin = override
+            return override
+        cls._it2_bin = shutil.which("it2") or "it2"
+        return cls._it2_bin
+
+    def send_text(self, session_id: str, text: str) -> None:
+        sanitized = text.replace("\r", "").strip()
+        if not sanitized:
+            return
+        # 类似 WezTerm 的方式：先发送文本，再发送回车
+        # it2 session send 发送文本（不带换行）
+        subprocess.run(
+            [self._bin(), "session", "send", sanitized, "--session", session_id],
+            check=True,
+        )
+        # 等待一点时间，让 TUI 处理输入
+        time.sleep(0.01)
+        # 发送回车键（使用 \r）
+        subprocess.run(
+            [self._bin(), "session", "send", "\r", "--session", session_id],
+            check=True,
+        )
+
+    def is_alive(self, session_id: str) -> bool:
+        try:
+            result = subprocess.run(
+                [self._bin(), "session", "list", "--json"],
+                capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                return False
+            sessions = json.loads(result.stdout)
+            return any(s.get("id") == session_id for s in sessions)
+        except Exception:
+            return False
+
+    def kill_pane(self, session_id: str) -> None:
+        subprocess.run(
+            [self._bin(), "session", "close", "--session", session_id, "--force"],
+            stderr=subprocess.DEVNULL
+        )
+
+    def activate(self, session_id: str) -> None:
+        subprocess.run([self._bin(), "session", "focus", session_id])
+
+    def create_pane(self, cmd: str, cwd: str, direction: str = "right", percent: int = 50, parent_pane: Optional[str] = None) -> str:
+        # iTerm2 分屏：vertical 对应 right，horizontal 对应 bottom
+        args = [self._bin(), "session", "split"]
+        if direction == "right":
+            args.append("--vertical")
+        # 如果有 parent_pane，指定目标 session
+        if parent_pane:
+            args.extend(["--session", parent_pane])
+
+        result = subprocess.run(args, capture_output=True, text=True, check=True)
+        # it2 输出格式: "Created new pane: <session_id>"
+        output = result.stdout.strip()
+        if ":" in output:
+            new_session_id = output.split(":")[-1].strip()
+        else:
+            # 尝试从 stderr 或其他地方获取
+            new_session_id = output
+
+        # 在新 pane 中执行启动命令
+        if new_session_id and cmd:
+            # 先 cd 到工作目录，再执行命令
+            full_cmd = f"cd {shlex.quote(cwd)} && {cmd}"
+            time.sleep(0.2)  # 等待 pane 就绪
+            # 使用 send + 回车的方式，与 send_text 保持一致
+            subprocess.run(
+                [self._bin(), "session", "send", full_cmd, "--session", new_session_id],
+                check=True
+            )
+            time.sleep(0.01)
+            subprocess.run(
+                [self._bin(), "session", "send", "\r", "--session", new_session_id],
+                check=True
+            )
+
+        return new_session_id
+
+
 class WeztermBackend(TerminalBackend):
     _wezterm_bin: Optional[str] = None
 
@@ -263,12 +355,22 @@ _backend_cache: Optional[TerminalBackend] = None
 
 
 def detect_terminal() -> Optional[str]:
+    # 优先检测当前环境变量（已在某终端中运行）
     if os.environ.get("WEZTERM_PANE"):
         return "wezterm"
+    if os.environ.get("ITERM_SESSION_ID"):
+        return "iterm2"
     if os.environ.get("TMUX"):
         return "tmux"
+    # 检查配置的二进制覆盖或缓存路径
     if _get_wezterm_bin():
         return "wezterm"
+    override = os.environ.get("CODEX_IT2_BIN") or os.environ.get("IT2_BIN")
+    if override and Path(override).expanduser().exists():
+        return "iterm2"
+    # 检查可用的终端工具
+    if shutil.which("it2"):
+        return "iterm2"
     if shutil.which("tmux") or shutil.which("tmux.exe"):
         return "tmux"
     return None
@@ -281,6 +383,8 @@ def get_backend(terminal_type: Optional[str] = None) -> Optional[TerminalBackend
     t = terminal_type or detect_terminal()
     if t == "wezterm":
         _backend_cache = WeztermBackend()
+    elif t == "iterm2":
+        _backend_cache = Iterm2Backend()
     elif t == "tmux":
         _backend_cache = TmuxBackend()
     return _backend_cache
@@ -290,11 +394,15 @@ def get_backend_for_session(session_data: dict) -> Optional[TerminalBackend]:
     terminal = session_data.get("terminal", "tmux")
     if terminal == "wezterm":
         return WeztermBackend()
+    elif terminal == "iterm2":
+        return Iterm2Backend()
     return TmuxBackend()
 
 
 def get_pane_id_from_session(session_data: dict) -> Optional[str]:
     terminal = session_data.get("terminal", "tmux")
     if terminal == "wezterm":
+        return session_data.get("pane_id")
+    elif terminal == "iterm2":
         return session_data.get("pane_id")
     return session_data.get("tmux_session")

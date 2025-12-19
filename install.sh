@@ -170,19 +170,138 @@ print_tmux_install_hint() {
   esac
 }
 
+# 检测是否在 iTerm2 环境中运行
+is_iterm2_environment() {
+  # 检查 ITERM_SESSION_ID 环境变量
+  if [[ -n "${ITERM_SESSION_ID:-}" ]]; then
+    return 0
+  fi
+  # 检查 TERM_PROGRAM
+  if [[ "${TERM_PROGRAM:-}" == "iTerm.app" ]]; then
+    return 0
+  fi
+  # macOS 上检查 iTerm2 是否正在运行
+  if [[ "$(uname)" == "Darwin" ]] && pgrep -x "iTerm2" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+# 安装 it2 CLI
+install_it2() {
+  echo
+  echo "📦 正在安装 it2 CLI..."
+
+  # 检查 pip3 是否可用
+  if ! command -v pip3 >/dev/null 2>&1; then
+    echo "❌ 未找到 pip3，无法自动安装 it2"
+    echo "   请手动运行: python3 -m pip install it2"
+    return 1
+  fi
+
+  # 安装 it2
+  if pip3 install it2 --user 2>&1; then
+    echo "✅ it2 CLI 安装成功"
+
+    # 检查是否在 PATH 中
+    if ! command -v it2 >/dev/null 2>&1; then
+      local user_bin
+      user_bin="$(python3 -m site --user-base)/bin"
+      echo
+      echo "⚠️ it2 可能不在 PATH 中，请添加以下路径到你的 shell 配置文件："
+      echo "   export PATH=\"$user_bin:\$PATH\""
+    fi
+    return 0
+  else
+    echo "❌ it2 安装失败"
+    return 1
+  fi
+}
+
+# 显示 iTerm2 Python API 启用提示
+show_iterm2_api_reminder() {
+  echo
+  echo "================================================================"
+  echo "🔔 重要提示：请在 iTerm2 中启用 Python API"
+  echo "================================================================"
+  echo "   步骤："
+  echo "   1. 打开 iTerm2"
+  echo "   2. 进入 Preferences (⌘ + ,)"
+  echo "   3. 选择 Magic 标签页"
+  echo "   4. 勾选 \"Enable Python API\""
+  echo "   5. 确认警告对话框"
+  echo "================================================================"
+  echo
+}
+
 require_terminal_backend() {
-  # 检测 WezTerm（优先）
   local wezterm_override="${CODEX_WEZTERM_BIN:-${WEZTERM_BIN:-}}"
+
+  # ============================================
+  # 优先检测当前运行环境，确保使用正确的终端工具
+  # ============================================
+
+  # 1. 如果在 WezTerm 环境中运行
+  if [[ -n "${WEZTERM_PANE:-}" ]]; then
+    if [[ -n "${wezterm_override}" ]] && { command -v "${wezterm_override}" >/dev/null 2>&1 || [[ -f "${wezterm_override}" ]]; }; then
+      echo "✓ 检测到 WezTerm 环境 (${wezterm_override})"
+      return
+    fi
+    if command -v wezterm >/dev/null 2>&1 || command -v wezterm.exe >/dev/null 2>&1; then
+      echo "✓ 检测到 WezTerm 环境"
+      return
+    fi
+  fi
+
+  # 2. 如果在 iTerm2 环境中运行
+  if is_iterm2_environment; then
+    # 检查是否已安装 it2
+    if command -v it2 >/dev/null 2>&1; then
+      echo "✓ 检测到 iTerm2 环境 (it2 CLI 已安装)"
+      echo "   💡 请确保已启用 iTerm2 Python API (Preferences > Magic > Enable Python API)"
+      return
+    fi
+
+    # 未安装 it2，询问是否安装
+    echo "🍎 检测到 iTerm2 环境，但未安装 it2 CLI"
+    echo
+    read -p "是否自动安装 it2 CLI？(Y/n): " -n 1 -r
+    echo
+
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+      if install_it2; then
+        show_iterm2_api_reminder
+        return
+      fi
+    else
+      echo "跳过 it2 安装，将使用 tmux 作为后备方案"
+    fi
+  fi
+
+  # 3. 如果在 tmux 环境中运行
+  if [[ -n "${TMUX:-}" ]]; then
+    echo "✓ 检测到 tmux 环境"
+    return
+  fi
+
+  # ============================================
+  # 不在特定环境中，按可用性检测
+  # ============================================
+
+  # 4. 检查 WezTerm 环境变量覆盖
   if [[ -n "${wezterm_override}" ]]; then
     if command -v "${wezterm_override}" >/dev/null 2>&1 || [[ -f "${wezterm_override}" ]]; then
       echo "✓ 检测到 WezTerm (${wezterm_override})"
       return
     fi
   fi
+
+  # 5. 检查 WezTerm 命令
   if command -v wezterm >/dev/null 2>&1 || command -v wezterm.exe >/dev/null 2>&1; then
     echo "✓ 检测到 WezTerm"
     return
   fi
+
   # WSL 场景：Windows PATH 可能未注入 WSL，尝试常见安装路径
   if [[ -f "/proc/version" ]] && grep -qi microsoft /proc/version 2>/dev/null; then
     if [[ -x "/mnt/c/Program Files/WezTerm/wezterm.exe" ]] || [[ -f "/mnt/c/Program Files/WezTerm/wezterm.exe" ]]; then
@@ -194,13 +313,31 @@ require_terminal_backend() {
       return
     fi
   fi
-  # 检测 tmux（备选）
+
+  # 6. 检查 it2 CLI
+  if command -v it2 >/dev/null 2>&1; then
+    echo "✓ 检测到 it2 CLI"
+    return
+  fi
+
+  # 7. 检查 tmux
   if command -v tmux >/dev/null 2>&1; then
     echo "✓ 检测到 tmux（建议同时安装 WezTerm 以获得更好体验）"
     return
   fi
-  echo "❌ 缺少依赖: WezTerm 或 tmux（推荐 WezTerm）"
+
+  # 8. 没有找到任何可用的终端复用器
+  echo "❌ 缺少依赖: WezTerm、tmux 或 it2 (至少需要安装其中一个)"
   echo "   WezTerm 官网: https://wezfurlong.org/wezterm/"
+
+  # macOS 上额外提示 iTerm2 + it2 选项
+  if [[ "$(uname)" == "Darwin" ]]; then
+    echo
+    echo "💡 macOS 用户推荐选项："
+    echo "   - 如果你使用 iTerm2，可以安装 it2 CLI: pip3 install it2"
+    echo "   - 或者安装 tmux: brew install tmux"
+  fi
+
   print_tmux_install_hint
   exit 1
 }
@@ -410,7 +547,7 @@ with open('$claude_md', 'w', encoding='utf-8') as f:
   cat >> "$claude_md" << 'AI_RULES'
 
 ## Codex Collaboration Rules
-Codex is another AI assistant running in a separate terminal session (WezTerm or tmux). When user intent involves asking/consulting/collaborating with Codex:
+Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
 - If the user message starts with any of: `调取codex`, `@codex`, `codex:`, `codex：`, `问codex`, `让codex` then immediately run:
@@ -435,7 +572,7 @@ Examples:
 - "don't wait for reply" → cask
 
 ## Gemini Collaboration Rules
-Gemini is another AI assistant running in a separate terminal session (WezTerm or tmux). When user intent involves asking/consulting/collaborating with Gemini:
+Gemini is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
 - If the user message starts with any of: `调取gemini`, `@gemini`, `gemini:`, `gemini：`, `问gemini`, `让gemini` then immediately run:
@@ -562,20 +699,136 @@ install_all() {
   echo "   全局 settings.json 已添加权限"
 }
 
+uninstall_claude_md_config() {
+  local claude_md="$HOME/.claude/CLAUDE.md"
+
+  if [[ ! -f "$claude_md" ]]; then
+    return
+  fi
+
+  if grep -qE "$RULE_MARKER|$LEGACY_RULE_MARKER|## Gemini" "$claude_md" 2>/dev/null; then
+    echo "正在移除 CLAUDE.md 中的协作规则..."
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -c "
+import re
+with open('$claude_md', 'r', encoding='utf-8') as f:
+    content = f.read()
+# Remove all collaboration rule sections
+patterns = [
+    r'## Codex Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Codex 协作规则.*?(?=\n## |\Z)',
+    r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Gemini 协作规则.*?(?=\n## |\Z)',
+]
+for p in patterns:
+    content = re.sub(p, '', content, flags=re.DOTALL)
+content = content.rstrip() + '\n'
+with open('$claude_md', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
+      echo "已移除 CLAUDE.md 中的协作规则"
+    else
+      echo "⚠️ 需要 python3 来清理 CLAUDE.md，请手动移除协作规则部分"
+    fi
+  fi
+}
+
+uninstall_settings_permissions() {
+  local settings_file="$HOME/.claude/settings.json"
+
+  if [[ ! -f "$settings_file" ]]; then
+    return
+  fi
+
+  local perms_to_remove=(
+    'Bash(cask:*)'
+    'Bash(cask-w:*)'
+    'Bash(cpend)'
+    'Bash(cping)'
+    'Bash(gask:*)'
+    'Bash(gask-w:*)'
+    'Bash(gpend)'
+    'Bash(gping)'
+  )
+
+  if command -v python3 >/dev/null 2>&1; then
+    local has_perms=0
+    for perm in "${perms_to_remove[@]}"; do
+      if grep -q "$perm" "$settings_file" 2>/dev/null; then
+        has_perms=1
+        break
+      fi
+    done
+
+    if [[ $has_perms -eq 1 ]]; then
+      echo "正在移除 settings.json 中的权限配置..."
+      python3 -c "
+import json
+perms_to_remove = [
+    'Bash(cask:*)',
+    'Bash(cask-w:*)',
+    'Bash(cpend)',
+    'Bash(cping)',
+    'Bash(gask:*)',
+    'Bash(gask-w:*)',
+    'Bash(gpend)',
+    'Bash(gping)',
+]
+with open('$settings_file', 'r') as f:
+    data = json.load(f)
+if 'permissions' in data and 'allow' in data['permissions']:
+    data['permissions']['allow'] = [
+        p for p in data['permissions']['allow']
+        if p not in perms_to_remove
+    ]
+with open('$settings_file', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+      echo "已移除 settings.json 中的权限配置"
+    fi
+  else
+    echo "⚠️ 需要 python3 来清理 settings.json，请手动移除相关权限"
+  fi
+}
+
 uninstall_all() {
-  rm -rf "$INSTALL_PREFIX"
-  for name in "${SCRIPTS_TO_LINK[@]}"; do
-    rm -f "$BIN_DIR/$name"
+  echo "🧹 开始卸载 ccb..."
+
+  # 1. 移除项目目录
+  if [[ -d "$INSTALL_PREFIX" ]]; then
+    rm -rf "$INSTALL_PREFIX"
+    echo "已移除项目目录: $INSTALL_PREFIX"
+  fi
+
+  # 2. 移除 bin 链接
+  for path in "${SCRIPTS_TO_LINK[@]}"; do
+    local name
+    name="$(basename "$path")"
+    if [[ -L "$BIN_DIR/$name" || -f "$BIN_DIR/$name" ]]; then
+      rm -f "$BIN_DIR/$name"
+    fi
   done
   for legacy in "${LEGACY_SCRIPTS[@]}"; do
     rm -f "$BIN_DIR/$legacy"
   done
+  echo "已移除 bin 链接: $BIN_DIR"
+
+  # 3. 移除 Claude 命令文件
   local claude_dir
   claude_dir="$(detect_claude_dir)"
   for doc in "${CLAUDE_MARKDOWN[@]}"; do
     rm -f "$claude_dir/$doc"
   done
+  echo "已移除 Claude 命令: $claude_dir"
+
+  # 4. 移除 CLAUDE.md 中的协作规则
+  uninstall_claude_md_config
+
+  # 5. 移除 settings.json 中的权限配置
+  uninstall_settings_permissions
+
   echo "✅ 卸载完成"
+  echo "   💡 注意: 依赖项 (python3, tmux, wezterm, it2) 未被移除"
 }
 
 main() {

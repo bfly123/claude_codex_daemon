@@ -260,14 +260,22 @@ class CodexCommunicator:
 
     def _load_session_info(self):
         if "CODEX_SESSION_ID" in os.environ:
+            terminal = os.environ.get("CODEX_TERMINAL", "tmux")
+            # 根据终端类型获取正确的 pane_id
+            if terminal == "wezterm":
+                pane_id = os.environ.get("CODEX_WEZTERM_PANE", "")
+            elif terminal == "iterm2":
+                pane_id = os.environ.get("CODEX_ITERM2_PANE", "")
+            else:
+                pane_id = ""
             return {
                 "session_id": os.environ["CODEX_SESSION_ID"],
                 "runtime_dir": os.environ["CODEX_RUNTIME_DIR"],
                 "input_fifo": os.environ["CODEX_INPUT_FIFO"],
                 "output_fifo": os.environ.get("CODEX_OUTPUT_FIFO", ""),
-                "terminal": os.environ.get("CODEX_TERMINAL", "tmux"),
+                "terminal": terminal,
                 "tmux_session": os.environ.get("CODEX_TMUX_SESSION", ""),
-                "pane_id": os.environ.get("CODEX_WEZTERM_PANE", ""),
+                "pane_id": pane_id,
                 "_session_file": None,
             }
 
@@ -310,13 +318,13 @@ class CodexCommunicator:
             if not self.runtime_dir.exists():
                 return False, "运行时目录不存在"
 
-            # WezTerm 模式：没有 tmux wrapper，因此通常不会生成 codex.pid；
+            # WezTerm/iTerm2 模式：没有 tmux wrapper，因此通常不会生成 codex.pid；
             # 以 pane 存活作为健康判定（与 Gemini 逻辑一致）。
-            if self.terminal == "wezterm":
+            if self.terminal in ("wezterm", "iterm2"):
                 if not self.pane_id:
-                    return False, "未找到 WezTerm pane_id"
+                    return False, f"未找到 {self.terminal} pane_id"
                 if probe_terminal and (not self.backend or not self.backend.is_alive(self.pane_id)):
-                    return False, f"WezTerm pane 不存在: {self.pane_id}"
+                    return False, f"{self.terminal} pane 不存在: {self.pane_id}"
                 return True, "会话正常"
 
             # tmux 模式：依赖 wrapper 写入 codex.pid 与 FIFO
@@ -353,8 +361,8 @@ class CodexCommunicator:
 
         state = self.log_reader.capture_state()
 
-        # tmux 模式优先通过 FIFO 驱动桥接器；WezTerm 模式则直接向 pane 注入文本
-        if self.terminal == "wezterm":
+        # tmux 模式优先通过 FIFO 驱动桥接器；WezTerm/iTerm2 模式则直接向 pane 注入文本
+        if self.terminal in ("wezterm", "iterm2"):
             self._send_via_terminal(content)
         else:
             with open(self.input_fifo, "w", encoding="utf-8") as fifo:
