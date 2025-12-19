@@ -199,7 +199,7 @@ class CodexLogReader:
                         offset = 0
                     if not block:
                         return None, {"log_path": current_path, "offset": offset}
-                    time.sleep(0.05)
+                    time.sleep(self._poll_interval)
                     last_rescan = time.time()
                     continue
                 last_rescan = time.time()
@@ -338,6 +338,19 @@ class CodexCommunicator:
                 os.kill(codex_pid, 0)
             except OSError:
                 return False, f"Codex进程(PID:{codex_pid})已退出"
+
+            bridge_pid_file = self.runtime_dir / "bridge.pid"
+            if not bridge_pid_file.exists():
+                return False, "Bridge进程PID文件不存在"
+            try:
+                with bridge_pid_file.open("r", encoding="utf-8") as handle:
+                    bridge_pid = int(handle.read().strip())
+            except Exception:
+                return False, "Bridge进程PID读取失败"
+            try:
+                os.kill(bridge_pid, 0)
+            except OSError:
+                return False, f"Bridge进程(PID:{bridge_pid})已退出"
 
             if not self.input_fifo.exists():
                 return False, "通信管道不存在"

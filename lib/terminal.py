@@ -13,6 +13,17 @@ from pathlib import Path
 from typing import Optional
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(0.0, value)
+
+
 def is_windows() -> bool:
     return platform.system() == "Windows"
 
@@ -130,12 +141,16 @@ class TmuxBackend(TerminalBackend):
             return
 
         buffer_name = f"tb-{os.getpid()}-{int(time.time() * 1000)}"
-        encoded = (sanitized + "\n").encode("utf-8")
+        encoded = sanitized.encode("utf-8")
         subprocess.run(["tmux", "load-buffer", "-b", buffer_name, "-"], input=encoded, check=True)
-        subprocess.run(["tmux", "paste-buffer", "-t", session, "-b", buffer_name, "-p"], check=True)
-        time.sleep(0.02)
-        subprocess.run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
-        subprocess.run(["tmux", "delete-buffer", "-b", buffer_name], stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run(["tmux", "paste-buffer", "-t", session, "-b", buffer_name, "-p"], check=True)
+            enter_delay = _env_float("CCB_TMUX_ENTER_DELAY", 0.0)
+            if enter_delay:
+                time.sleep(enter_delay)
+            subprocess.run(["tmux", "send-keys", "-t", session, "Enter"], check=True)
+        finally:
+            subprocess.run(["tmux", "delete-buffer", "-b", buffer_name], stderr=subprocess.DEVNULL)
 
     def is_alive(self, session: str) -> bool:
         result = subprocess.run(["tmux", "has-session", "-t", session], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -280,7 +295,9 @@ class WeztermBackend(TerminalBackend):
             check=True,
         )
         # 给 TUI 一点时间退出“粘贴/突发输入”路径，再发送 Enter 更像真实按键
-        time.sleep(0.01)
+        enter_delay = _env_float("CCB_WEZTERM_ENTER_DELAY", 0.0)
+        if enter_delay:
+            time.sleep(enter_delay)
         try:
             subprocess.run(
                 [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],

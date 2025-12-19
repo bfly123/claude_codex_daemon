@@ -110,6 +110,26 @@ class AILauncher:
                 return term
         return "tmux"
 
+    def _launch_script_in_macos_terminal(self, script_file: Path) -> bool:
+        """macOS: 使用 Terminal.app 打开新窗口执行脚本（避免 tmux launcher 嵌套导致交互失败）"""
+        if platform.system() != "Darwin":
+            return False
+        if not shutil.which("osascript"):
+            return False
+        env = os.environ.copy()
+        env["CCB_WRAPPER_SCRIPT"] = str(script_file)
+        subprocess.Popen(
+            [
+                "osascript",
+                "-e",
+                'tell application "Terminal" to do script "/bin/bash " & quoted form of (system attribute "CCB_WRAPPER_SCRIPT")',
+                "-e",
+                'tell application "Terminal" to activate',
+            ],
+            env=env,
+        )
+        return True
+
     def _start_provider(self, provider: str) -> bool:
         # 处理未检测到终端的情况
         if self.terminal_type is None:
@@ -431,7 +451,6 @@ CODEX_START_CMD={json.dumps(start_cmd)}
 if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     cd "$WORK_DIR"
     tmux new-session -d -s "$TMUX_SESSION" "$CODEX_START_CMD"
-    sleep 1
 fi
 tmux pipe-pane -o -t "$TMUX_SESSION" "cat >> '$TMUX_LOG_FILE'"
 
@@ -450,7 +469,10 @@ exec tmux attach -t "$TMUX_SESSION"
 
         terminal = self._detect_launch_terminal()
         if terminal == "tmux":
-            subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
+            if self._launch_script_in_macos_terminal(script_file):
+                pass
+            else:
+                subprocess.run(["tmux", "new-session", "-d", "-s", f"launcher-{tmux_session}", str(script_file)], check=True)
         else:
             subprocess.Popen([terminal, "-e", str(script_file)])
 
@@ -479,10 +501,23 @@ exec tmux attach -t "$TMUX_SESSION"
 
         terminal = self._detect_launch_terminal()
         if terminal == "tmux":
-            # 纯 tmux 模式
-            subprocess.run(["tmux", "new-session", "-d", "-s", tmux_session], check=True, cwd=os.getcwd())
-            time.sleep(0.3)
-            subprocess.run(["tmux", "send-keys", "-t", tmux_session, start_cmd, "Enter"], check=True)
+            if self._launch_script_in_macos_terminal(script_file):
+                pass
+            else:
+                # 纯 tmux 模式
+                subprocess.run(["tmux", "new-session", "-d", "-s", tmux_session], check=True, cwd=os.getcwd())
+                backend = TmuxBackend()
+                deadline = time.time() + 1.0
+                sleep_s = 0.05
+                while True:
+                    try:
+                        backend.send_text(tmux_session, start_cmd)
+                        break
+                    except subprocess.CalledProcessError:
+                        if time.time() >= deadline:
+                            raise
+                        time.sleep(sleep_s)
+                        sleep_s = min(0.2, sleep_s * 2)
         else:
             # 打开新终端窗口
             subprocess.Popen([terminal, "--", str(script_file)])
@@ -720,10 +755,7 @@ exec tmux attach -t "$TMUX_SESSION"
         for provider in providers:
             if not self._start_provider(provider):
                 return 1
-            time.sleep(1)
             self._warmup_provider(provider)
-
-        time.sleep(2)
 
         if self.no_claude:
             print("✅ 后端已启动（--no-claude 模式）")

@@ -18,6 +18,17 @@ from typing import Any, Dict, Optional
 from terminal import TmuxBackend, WeztermBackend
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(0.0, value)
+
+
 class TerminalCodexSession:
     """通过终端会话向 Codex CLI 注入指令"""
 
@@ -60,19 +71,28 @@ class DualBridge:
 
     def run(self) -> int:
         self._log_console("🔌 Codex桥接器已启动，等待Claude指令...")
+        idle_sleep = _env_float("CCB_BRIDGE_IDLE_SLEEP", 0.05)
+        error_backoff_min = _env_float("CCB_BRIDGE_ERROR_BACKOFF_MIN", 0.05)
+        error_backoff_max = _env_float("CCB_BRIDGE_ERROR_BACKOFF_MAX", 0.2)
+        error_backoff = max(0.0, min(error_backoff_min, error_backoff_max))
         while self._running:
             try:
                 payload = self._read_request()
                 if payload is None:
-                    time.sleep(0.1)
+                    if idle_sleep:
+                        time.sleep(idle_sleep)
                     continue
                 self._process_request(payload)
+                error_backoff = max(0.0, min(error_backoff_min, error_backoff_max))
             except KeyboardInterrupt:
                 self._running = False
             except Exception as exc:
                 self._log_console(f"❌ 处理消息失败: {exc}")
                 self._log_bridge(f"error: {exc}")
-                time.sleep(0.5)
+                if error_backoff:
+                    time.sleep(error_backoff)
+                if error_backoff_max:
+                    error_backoff = min(error_backoff_max, max(error_backoff_min, error_backoff * 2))
 
         self._log_console("👋 Codex桥接器已退出")
         return 0
@@ -86,7 +106,7 @@ class DualBridge:
                 if not line:
                     return None
                 return json.loads(line)
-        except json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return None
 
     def _process_request(self, payload: Dict[str, Any]) -> None:
