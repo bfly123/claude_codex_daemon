@@ -8,10 +8,11 @@ import sys
 import os
 from pathlib import Path
 
-# 添加lib目录到Python路径
 script_dir = Path(__file__).resolve().parent
 lib_dir = script_dir.parent / "lib"
 sys.path.insert(0, str(lib_dir))
+from compat import setup_windows_encoding
+setup_windows_encoding()
 
 try:
     from codex_comm import CodexCommunicator

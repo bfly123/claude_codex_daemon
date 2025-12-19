@@ -24,6 +24,9 @@ from pathlib import Path
 script_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(script_dir / "lib"))
 from terminal import TmuxBackend, WeztermBackend, Iterm2Backend, detect_terminal, is_wsl, get_shell_type
+from compat import setup_windows_encoding
+
+setup_windows_encoding()
 
 VERSION = "2.1"
 
@@ -32,7 +35,7 @@ def _get_git_info() -> str:
     try:
         result = subprocess.run(
             ["git", "-C", str(script_dir), "log", "-1", "--format=%h %ci"],
-            capture_output=True, text=True, timeout=2
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=2
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -385,6 +388,8 @@ class AILauncher:
                 cwd=str(Path.cwd()),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
             )
             if last_result.returncode == 0:
                 out = (last_result.stdout or "").strip()
@@ -629,6 +634,28 @@ exec tmux attach -t "$TMUX_SESSION"
         latest = max(uuid_sessions, key=lambda p: p.stat().st_mtime)
         return latest.stem, True
 
+    def _find_claude_cmd(self) -> str:
+        """Find Claude CLI executable"""
+        if sys.platform == "win32":
+            for cmd in ["claude.exe", "claude.cmd", "claude.bat", "claude"]:
+                path = shutil.which(cmd)
+                if path:
+                    return path
+            npm_paths = [
+                Path(os.environ.get("APPDATA", "")) / "npm" / "claude.cmd",
+                Path(os.environ.get("ProgramFiles", "")) / "nodejs" / "claude.cmd",
+            ]
+            for npm_path in npm_paths:
+                if npm_path.exists():
+                    return str(npm_path)
+        else:
+            path = shutil.which("claude")
+            if path:
+                return path
+        raise FileNotFoundError(
+            "❌ Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"
+        )
+
     def _start_claude(self) -> int:
         print("🚀 启动 Claude...")
 
@@ -659,7 +686,13 @@ exec tmux attach -t "$TMUX_SESSION"
             else:
                 env["GEMINI_TMUX_SESSION"] = self.tmux_sessions.get("gemini", "")
 
-        cmd = ["claude"]
+        try:
+            claude_cmd = self._find_claude_cmd()
+        except FileNotFoundError as e:
+            print(str(e))
+            return 1
+
+        cmd = [claude_cmd]
         if self.auto:
             cmd.append("--dangerously-skip-permissions")
         local_session_id: str | None = None
@@ -1009,7 +1042,7 @@ def cmd_update(args):
         print("📦 Updating via git pull...")
         result = subprocess.run(
             ["git", "-C", str(install_dir), "pull", "--ff-only"],
-            capture_output=True, text=True
+            capture_output=True, text=True, encoding='utf-8', errors='replace'
         )
         if result.returncode == 0:
             print(result.stdout.strip() if result.stdout.strip() else "Already up to date.")

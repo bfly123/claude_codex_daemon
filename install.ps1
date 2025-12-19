@@ -38,19 +38,15 @@ function Require-Python310 {
   }
 
   try {
-    $version = & $exe @args -c "import sys; print('{}.{}.{}'.format(sys.version_info[0], sys.version_info[1], sys.version_info[2]))"
+    $vinfo = & $exe @args -c "import sys; v=sys.version_info; print(f'{v.major}.{v.minor}.{v.micro} {v.major} {v.minor}')"
+    $parts = $vinfo.Trim() -split " "
+    $version = $parts[0]
+    $major = [int]$parts[1]
+    $minor = [int]$parts[2]
   } catch {
-    Write-Host "Failed to query Python version using: $PythonCmd"
+    Write-Host "❌ Failed to query Python version using: $PythonCmd"
     exit 1
   }
-
-  $verParts = ($version -split "\\.") | Where-Object { $_ }
-  if ($verParts.Length -lt 2) {
-    Write-Host "❌ Unable to parse Python version: $version"
-    exit 1
-  }
-  $major = [int]$verParts[0]
-  $minor = [int]$verParts[1]
 
   if (($major -ne 3) -or ($minor -lt 10)) {
     Write-Host "❌ Python version too old: $version"

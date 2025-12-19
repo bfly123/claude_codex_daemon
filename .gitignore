@@ -5,3 +5,4 @@ __pycache__/
 .claude-session
 .claude/
 *.mp4
+tmp/

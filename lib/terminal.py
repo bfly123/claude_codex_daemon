@@ -364,8 +364,11 @@ class WeztermBackend(TerminalBackend):
                 args.extend(["--pane-id", parent_pane])
             shell, flag = _default_shell()
             args.extend(["--", shell, flag, cmd])
-        result = subprocess.run(args, capture_output=True, text=True, check=True)
-        return result.stdout.strip()
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"WezTerm split-pane failed:\nCommand: {' '.join(args)}\nStderr: {e.stderr}") from e
 
 
 _backend_cache: Optional[TerminalBackend] = None

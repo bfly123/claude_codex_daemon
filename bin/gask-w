@@ -11,6 +11,8 @@ from pathlib import Path
 script_dir = Path(__file__).resolve().parent
 lib_dir = script_dir.parent / "lib"
 sys.path.insert(0, str(lib_dir))
+from compat import setup_windows_encoding
+setup_windows_encoding()
 
 from gemini_comm import GeminiCommunicator
 
