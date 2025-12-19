@@ -184,6 +184,8 @@ ccb update              # Update to latest version
 - Python 3.10+
 - tmux or WezTerm (at least one; WezTerm recommended)
 
+> **⚠️ Windows Users:** Always install WezTerm using the **native Windows .exe installer** from [wezfurlong.org/wezterm](https://wezfurlong.org/wezterm/), even if you use WSL. Do NOT install WezTerm inside WSL. After installation, configure WezTerm to connect to WSL via `wsl.exe` as the default shell. This ensures proper split-pane functionality.
+
 ## Uninstall
 
 ```bash
@@ -370,8 +372,9 @@ ccb update              # 更新到最新版本
 ## 依赖
 
 - Python 3.10+
-- tmux 或 WezTerm（至少安装一个），强烈推荐wezterm
+- tmux 或 WezTerm（至少安装一个），强烈推荐 WezTerm
 
+> **⚠️ Windows 用户注意：** 必须使用 **Windows 原生 .exe 安装包** 安装 WezTerm（[下载地址](https://wezfurlong.org/wezterm/)），即使你使用 WSL 也是如此。**不要在 WSL 内部安装 WezTerm**。安装完成后，可在 WezTerm 设置中将默认 shell 配置为 `wsl.exe`，即可无缝接入 WSL 环境，同时保证分屏功能正常工作。
 
 ## 卸载
 
