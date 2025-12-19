@@ -110,6 +110,8 @@ def _default_shell() -> tuple[str, str]:
 
 
 def get_shell_type() -> str:
+    if is_windows() and os.environ.get("CCB_BACKEND_ENV", "").lower() == "wsl":
+        return "bash"
     shell, _ = _default_shell()
     if shell in ("pwsh", "powershell"):
         return "powershell"
@@ -329,7 +331,9 @@ class WeztermBackend(TerminalBackend):
 
     def create_pane(self, cmd: str, cwd: str, direction: str = "right", percent: int = 50, parent_pane: Optional[str] = None) -> str:
         args = [*self._cli_base_args(), "split-pane"]
-        if is_wsl() and _is_windows_wezterm():
+        force_wsl = os.environ.get("CCB_BACKEND_ENV", "").lower() == "wsl"
+        use_wsl_launch = (is_wsl() and _is_windows_wezterm()) or (force_wsl and is_windows())
+        if use_wsl_launch:
             in_wsl_pane = bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
             wsl_cwd = cwd
             wsl_localhost_match = re.match(r'^[/\\]{1,2}wsl\.localhost[/\\][^/\\]+(.+)$', cwd, re.IGNORECASE)
@@ -337,7 +341,8 @@ class WeztermBackend(TerminalBackend):
                 wsl_cwd = wsl_localhost_match.group(1).replace('\\', '/')
             elif "\\" in cwd or (len(cwd) > 2 and cwd[1] == ":"):
                 try:
-                    result = subprocess.run(["wslpath", "-a", cwd], capture_output=True, text=True, check=True)
+                    wslpath_cmd = ["wslpath", "-a", cwd] if is_wsl() else ["wsl.exe", "wslpath", "-a", cwd]
+                    result = subprocess.run(wslpath_cmd, capture_output=True, text=True, check=True)
                     wsl_cwd = result.stdout.strip()
                 except Exception:
                     pass

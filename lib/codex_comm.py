@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
 from terminal import get_backend_for_session, get_pane_id_from_session
+from ccb_config import apply_backend_env
+
+apply_backend_env()
 
 SESSION_ROOT = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
 SESSION_ID_PATTERN = re.compile(

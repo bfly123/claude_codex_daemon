@@ -136,6 +136,40 @@ check_wsl_compatibility() {
   fi
 }
 
+confirm_backend_env_wsl() {
+  if ! is_wsl; then
+    return
+  fi
+
+  if [[ "${CCB_INSTALL_ASSUME_YES:-}" == "1" ]]; then
+    return
+  fi
+
+  if [[ ! -t 0 ]]; then
+    echo "❌ 当前在 WSL 中安装，但检测到非交互终端；为避免环境错配，已中止。"
+    echo "   如果你确认 codex/gemini 将安装并运行在 WSL："
+    echo "   重新运行: CCB_INSTALL_ASSUME_YES=1 ./install.sh install"
+    exit 1
+  fi
+
+  echo
+  echo "================================================================"
+  echo "⚠️  检测到 WSL 环境"
+  echo "================================================================"
+  echo "ccb/cask-w 必须与 codex/gemini 在同一环境运行。"
+  echo
+  echo "请确认：你将把 codex/gemini 安装并运行在 WSL（而不是 Windows 原生）。"
+  echo "如果你计划在 Windows 原生运行 codex/gemini，请退出并在 Windows 侧运行:"
+  echo "   powershell -ExecutionPolicy Bypass -File .\\install.ps1 install"
+  echo "================================================================"
+  echo
+  read -r -p "确认继续在 WSL 中安装？(y/N): " reply
+  case "$reply" in
+    y|Y|yes|YES) ;;
+    *) echo "已取消安装"; exit 1 ;;
+  esac
+}
+
 print_tmux_install_hint() {
   local platform
   platform="$(detect_platform)"
@@ -668,6 +702,7 @@ with open('$settings_file', 'w') as f:
 
 install_requirements() {
   check_wsl_compatibility
+  confirm_backend_env_wsl
   require_command python3 python3
   require_python_version
   require_terminal_backend

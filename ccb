@@ -25,8 +25,13 @@ script_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(script_dir / "lib"))
 from terminal import TmuxBackend, WeztermBackend, Iterm2Backend, detect_terminal, is_wsl, get_shell_type
 from compat import setup_windows_encoding
+from ccb_config import get_backend_env
 
 setup_windows_encoding()
+
+backend_env = get_backend_env()
+if backend_env and not os.environ.get("CCB_BACKEND_ENV"):
+    os.environ["CCB_BACKEND_ENV"] = backend_env
 
 VERSION = "2.1"
 

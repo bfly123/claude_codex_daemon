@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
 from terminal import get_backend_for_session, get_pane_id_from_session
+from ccb_config import apply_backend_env
+
+apply_backend_env()
 
 GEMINI_ROOT = Path(os.environ.get("GEMINI_ROOT") or (Path.home() / ".gemini" / "tmp")).expanduser()
 
