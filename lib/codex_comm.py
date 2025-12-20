@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 import shlex
 from datetime import datetime
@@ -78,12 +79,22 @@ class CodexLogReader:
 
     def _latest_log(self) -> Optional[Path]:
         preferred = self._preferred_log
-        if preferred and preferred.exists():
-            return preferred
+        # Always scan for latest to detect if preferred is stale
         latest = self._scan_latest()
         if latest:
-            self._preferred_log = latest
-        return latest
+            # If preferred is stale (different file or older), update it
+            if not preferred or not preferred.exists() or latest != preferred:
+                try:
+                    preferred_mtime = preferred.stat().st_mtime if preferred and preferred.exists() else 0
+                    latest_mtime = latest.stat().st_mtime
+                    if latest_mtime > preferred_mtime:
+                        self._preferred_log = latest
+                        return latest
+                except OSError:
+                    self._preferred_log = latest
+                    return latest
+            return preferred if preferred and preferred.exists() else latest
+        return preferred if preferred and preferred.exists() else None
 
     def current_log_path(self) -> Optional[Path]:
         return self._latest_log()
@@ -173,15 +184,26 @@ class CodexLogReader:
                 continue
 
             with log_path.open("r", encoding="utf-8", errors="ignore") as fh:
+                try:
+                    size = log_path.stat().st_size
+                except OSError:
+                    size = None
+                if isinstance(size, int) and offset > size:
+                    offset = size
                 fh.seek(offset)
                 while True:
                     if block and time.time() >= deadline:
                         return None, {"log_path": log_path, "offset": offset}
-                    line = fh.readline()
-                    if not line:
+                    pos_before = fh.tell()
+                    raw_line = fh.readline()
+                    if not raw_line:
+                        break
+                    # If we hit EOF without a newline, the writer may still be appending this line.
+                    if not raw_line.endswith("\n"):
+                        fh.seek(pos_before)
                         break
                     offset = fh.tell()
-                    line = line.strip()
+                    line = raw_line.strip()
                     if not line:
                         continue
                     try:
@@ -197,10 +219,8 @@ class CodexLogReader:
                 if latest and latest != log_path:
                     current_path = latest
                     self._preferred_log = latest
-                    try:
-                        offset = latest.stat().st_size
-                    except OSError:
-                        offset = 0
+                    # When switching to a new log file (rotation/session change), start from the beginning.
+                    offset = 0
                     if not block:
                         return None, {"log_path": current_path, "offset": offset}
                     time.sleep(self._poll_interval)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-gask-w - Send message to Gemini and wait for reply in background
+gask-w - Send message to Gemini and wait for reply (pure sync mode)
+Designed to be run with Claude Code's run_in_background=true
 """
 from __future__ import annotations
 import os
@@ -27,6 +28,7 @@ def main(argv: list[str]) -> int:
         setup_windows_encoding()
 
     from gemini_comm import GeminiCommunicator
+    from i18n import t
 
     try:
         comm = GeminiCommunicator(lazy_init=True)
@@ -38,53 +40,29 @@ def main(argv: list[str]) -> int:
             return 1
 
         # Send message
-        from i18n import t
         print(f"🔔 {t('sending_to', provider='Gemini')}", flush=True)
-        comm._send_via_terminal(message)
         state = comm.log_reader.capture_state()
-        print("✅ Message sent, waiting for reply in background...", flush=True)
+        comm._send_via_terminal(message)
 
-        # Double fork to fully detach background process
-        if hasattr(os, 'fork'):
-            pid = os.fork()
-            if pid > 0:
-                # Parent: return immediately
-                return 0
-            # First child: fork again and exit
-            os.setsid()
-            pid2 = os.fork()
-            if pid2 > 0:
-                os._exit(0)  # First child exits
-            # Grandchild: wait for reply silently
-            try:
-                sys.stdin.close()
-                sys.stdout = open(os.devnull, 'w')
-                sys.stderr = open(os.devnull, 'w')
+        # Pure sync wait (default 1 hour, configurable via CCB_SYNC_TIMEOUT)
+        sync_timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
+        message_reply, _ = comm.log_reader.wait_for_message(state, sync_timeout)
 
-                # Wait for reply (up to 5 minutes)
-                message_reply, new_state = comm.log_reader.wait_for_message(state, 300.0)
+        # Save to cache
+        cache_dir = Path.home() / ".cache" / "ccb"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        reply_file = cache_dir / "gemini_last_reply.txt"
 
-                # Save reply to cache file for gpend to read
-                if message_reply:
-                    cache_dir = Path.home() / ".cache" / "ccb"
-                    cache_dir.mkdir(parents=True, exist_ok=True)
-                    reply_file = cache_dir / "gemini_last_reply.txt"
-                    reply_file.write_text(message_reply, encoding="utf-8")
-            except Exception:
-                pass
-            os._exit(0)
+        if message_reply:
+            print(f"🤖 {t('reply_from', provider='Gemini')}")
+            print(message_reply)
+            reply_file.write_text(message_reply, encoding="utf-8")
         else:
-            # Windows: no fork, wait synchronously with short timeout
-            message_reply, new_state = comm.log_reader.wait_for_message(state, 30.0)
-            if message_reply:
-                print(f"🤖 {t('reply_from', provider='Gemini')}")
-                print(message_reply)
-            else:
-                print("⏰ Timeout waiting for reply")
-            return 0
+            print(f"⏰ Timeout after {int(sync_timeout)}s")
+        return 0
 
     except Exception as exc:
-        print(exc, file=sys.stderr)
+        print(f"❌ {exc}", file=sys.stderr)
         return 1
 
 

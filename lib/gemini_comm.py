@@ -93,19 +93,29 @@ class GeminiLogReader:
         return self._scan_latest_session_any_project()
 
     def _latest_session(self) -> Optional[Path]:
-        if self._preferred_session and self._preferred_session.exists():
-            return self._preferred_session
+        preferred = self._preferred_session
+        # Always scan for latest to detect if preferred is stale
         latest = self._scan_latest_session()
         if latest:
-            self._preferred_session = latest
-            try:
-                # If session found via fallback scan, bind projectHash to avoid future full scans
-                project_hash = latest.parent.parent.name
-                if project_hash:
-                    self._project_hash = project_hash
-            except Exception:
-                pass
-        return latest
+            # If preferred is stale (different file or older), update it
+            if not preferred or not preferred.exists() or latest != preferred:
+                try:
+                    preferred_mtime = preferred.stat().st_mtime if preferred and preferred.exists() else 0
+                    latest_mtime = latest.stat().st_mtime
+                    if latest_mtime > preferred_mtime:
+                        self._preferred_session = latest
+                        try:
+                            project_hash = latest.parent.parent.name
+                            if project_hash:
+                                self._project_hash = project_hash
+                        except Exception:
+                            pass
+                        return latest
+                except OSError:
+                    self._preferred_session = latest
+                    return latest
+            return preferred
+        return preferred if preferred and preferred.exists() else None
 
     def set_preferred_session(self, session_path: Optional[Path]) -> None:
         if not session_path:

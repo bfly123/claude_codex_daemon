@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-cask-w - Send message to Codex and wait for reply in background
+cask-w - Send message to Codex and wait for reply (pure sync mode)
+Designed to be run with Claude Code's run_in_background=true
 """
 from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+import json
 
 script_dir = Path(__file__).resolve().parent
 lib_dir = script_dir.parent / "lib"
@@ -27,6 +29,25 @@ def main(argv: list[str]) -> int:
         setup_windows_encoding()
 
     from codex_comm import CodexCommunicator
+    from i18n import t
+
+    def save_pending_state(state: dict) -> None:
+        session_file = Path.cwd() / ".codex-session"
+        if not session_file.exists():
+            return
+        try:
+            with session_file.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            data["pending_state"] = {
+                "log_path": str(state.get("log_path")) if state.get("log_path") else None,
+                "offset": int(state.get("offset", 0) or 0),
+            }
+            tmp_file = session_file.with_suffix(".tmp")
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, session_file)
+        except Exception:
+            return
 
     try:
         comm = CodexCommunicator(lazy_init=True)
@@ -38,52 +59,38 @@ def main(argv: list[str]) -> int:
             return 1
 
         # Send message
-        from i18n import t
         print(f"🔔 {t('sending_to', provider='Codex')}", flush=True)
         marker, state = comm._send_message(message)
-        print("✅ Message sent, waiting for reply in background...", flush=True)
+        comm._remember_codex_session(state.get("log_path") or comm.log_reader.current_log_path())
 
-        # Double fork to fully detach background process
-        if hasattr(os, 'fork'):
-            pid = os.fork()
-            if pid > 0:
-                # Parent: return immediately
-                return 0
-            # First child: fork again and exit
-            os.setsid()
-            pid2 = os.fork()
-            if pid2 > 0:
-                os._exit(0)  # First child exits
-            # Grandchild: wait for reply silently
-            try:
-                sys.stdin.close()
-                sys.stdout = open(os.devnull, 'w')
-                sys.stderr = open(os.devnull, 'w')
+        # Pure sync wait (default 1 hour, configurable via CCB_SYNC_TIMEOUT)
+        sync_timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
+        message_reply, _ = comm.log_reader.wait_for_message(state, sync_timeout)
 
-                # Wait for reply (up to 5 minutes)
-                message_reply, new_state = comm.log_reader.wait_for_message(state, 300.0)
+        # Save to cache
+        cache_dir = Path.home() / ".cache" / "ccb"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        reply_file = cache_dir / "codex_last_reply.txt"
 
-                # Save reply to cache file for cpend to read
-                if message_reply:
-                    cache_dir = Path.home() / ".cache" / "ccb"
-                    cache_dir.mkdir(parents=True, exist_ok=True)
-                    reply_file = cache_dir / "codex_last_reply.txt"
-                    reply_file.write_text(message_reply, encoding="utf-8")
-            except Exception:
-                pass
-            os._exit(0)
+        if message_reply:
+            print(f"🤖 {t('reply_from', provider='Codex')}")
+            print(message_reply)
+            reply_file.write_text(message_reply, encoding="utf-8")
         else:
-            # Windows: no fork, wait synchronously with short timeout
-            message_reply, new_state = comm.log_reader.wait_for_message(state, 30.0)
-            if message_reply:
-                print(f"🤖 {t('reply_from', provider='Codex')}")
-                print(message_reply)
-            else:
-                print("⏰ Timeout waiting for reply")
-            return 0
+            print(f"⏰ Timeout after {int(sync_timeout)}s")
+            save_pending_state(state)
+        return 0
 
+    except KeyboardInterrupt:
+        # Best-effort: preserve pending state so /cpend can fetch later.
+        try:
+            save_pending_state(locals().get("state", {}) if isinstance(locals().get("state"), dict) else {})
+        except Exception:
+            pass
+        print("❌ Interrupted", file=sys.stderr)
+        return 130
     except Exception as exc:
-        print(exc, file=sys.stderr)
+        print(f"❌ {exc}", file=sys.stderr)
         return 1
 
 
