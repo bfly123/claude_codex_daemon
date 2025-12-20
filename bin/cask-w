@@ -43,25 +43,19 @@ def main(argv: list[str]) -> int:
         marker, state = comm._send_message(message)
         print("✅ Message sent, waiting for reply in background...", flush=True)
 
-        # Fork background process to wait for reply
-        pid = os.fork() if hasattr(os, 'fork') else None
-
-        if pid is None:
-            # Windows: no fork, wait synchronously with short timeout
-            import time
-            message_reply, new_state = comm.log_reader.wait_for_message(state, 30.0)
-            if message_reply:
-                print(f"🤖 {t('reply_from', provider='Codex')}")
-                print(message_reply)
-            else:
-                print("⏰ Timeout waiting for reply")
-            return 0
-        elif pid == 0:
-            # Child process: wait for reply silently
-            import time
+        # Double fork to fully detach background process
+        if hasattr(os, 'fork'):
+            pid = os.fork()
+            if pid > 0:
+                # Parent: return immediately
+                return 0
+            # First child: fork again and exit
+            os.setsid()
+            pid2 = os.fork()
+            if pid2 > 0:
+                os._exit(0)  # First child exits
+            # Grandchild: wait for reply silently
             try:
-                # Detach from terminal
-                os.setsid()
                 sys.stdin.close()
                 sys.stdout = open(os.devnull, 'w')
                 sys.stderr = open(os.devnull, 'w')
@@ -79,7 +73,13 @@ def main(argv: list[str]) -> int:
                 pass
             os._exit(0)
         else:
-            # Parent process: return immediately
+            # Windows: no fork, wait synchronously with short timeout
+            message_reply, new_state = comm.log_reader.wait_for_message(state, 30.0)
+            if message_reply:
+                print(f"🤖 {t('reply_from', provider='Codex')}")
+                print(message_reply)
+            else:
+                print("⏰ Timeout waiting for reply")
             return 0
 
     except Exception as exc:
