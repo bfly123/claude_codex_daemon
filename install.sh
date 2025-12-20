@@ -637,7 +637,7 @@ install_claude_md_config() {
 Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
-- If the user message starts with any of: `@codex`, `codex:`, `ask codex`, `let codex` then immediately run:
+- If the user message starts with any of: `@codex`, `codex:`, `ask codex`, `let codex`, `/cask-w` then immediately run:
   - `Bash(cask-w "<message>", run_in_background=true)` (background send, continue immediately)
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
@@ -667,7 +667,7 @@ Examples:
 Gemini is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
-- If the user message starts with any of: `@gemini`, `gemini:`, `ask gemini`, `let gemini` then immediately run:
+- If the user message starts with any of: `@gemini`, `gemini:`, `ask gemini`, `let gemini`, `/gask-w` then immediately run:
   - `Bash(gask-w "<message>", run_in_background=true)` (background send, continue immediately)
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
