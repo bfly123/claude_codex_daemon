@@ -491,7 +491,8 @@ install_claude_commands() {
   echo "已更新 Claude 命令目录: $claude_dir"
 }
 
-RULE_MARKER="## Codex Collaboration Rules"
+CCB_START_MARKER="<!-- CCB_CONFIG_START -->"
+CCB_END_MARKER="<!-- CCB_CONFIG_END -->"
 LEGACY_RULE_MARKER="## Codex 协作规则"
 
 remove_codex_mcp() {
@@ -554,32 +555,9 @@ install_claude_md_config() {
   local claude_md="$HOME/.claude/CLAUDE.md"
   mkdir -p "$HOME/.claude"
 
-  # Remove old rules (both legacy Chinese and new English versions)
-  if [[ -f "$claude_md" ]]; then
-    if grep -qE "$RULE_MARKER|$LEGACY_RULE_MARKER|## Gemini" "$claude_md" 2>/dev/null; then
-      echo "Removing old collaboration rules..."
-      python3 -c "
-import re
-with open('$claude_md', 'r', encoding='utf-8') as f:
-    content = f.read()
-# Remove all collaboration rule sections
-patterns = [
-    r'## Codex Collaboration Rules.*?(?=\n## |\Z)',
-    r'## Codex 协作规则.*?(?=\n## |\Z)',
-    r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
-    r'## Gemini 协作规则.*?(?=\n## |\Z)',
-]
-for p in patterns:
-    content = re.sub(p, '', content, flags=re.DOTALL)
-content = content.rstrip() + '\n'
-with open('$claude_md', 'w', encoding='utf-8') as f:
-    f.write(content)
-"
-    fi
-  fi
-
-  cat >> "$claude_md" << 'AI_RULES'
-
+  local ccb_content
+  ccb_content=$(cat << 'AI_RULES'
+<!-- CCB_CONFIG_START -->
 ## Codex Collaboration Rules
 Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
@@ -639,7 +617,48 @@ Examples:
 - "is gemini alive" -> gping
 - "don't wait for reply" -> gask
 - "get gemini result" -> TaskOutput(task_id) or gpend
+<!-- CCB_CONFIG_END -->
 AI_RULES
+)
+
+  if [[ -f "$claude_md" ]]; then
+    if grep -q "$CCB_START_MARKER" "$claude_md" 2>/dev/null; then
+      echo "Updating existing CCB config block..."
+      python3 -c "
+import re
+with open('$claude_md', 'r', encoding='utf-8') as f:
+    content = f.read()
+pattern = r'<!-- CCB_CONFIG_START -->.*?<!-- CCB_CONFIG_END -->'
+new_block = '''$ccb_content'''
+content = re.sub(pattern, new_block, content, flags=re.DOTALL)
+with open('$claude_md', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
+    elif grep -qE "$LEGACY_RULE_MARKER|## Codex Collaboration Rules|## Gemini" "$claude_md" 2>/dev/null; then
+      echo "Removing legacy rules and adding new CCB config block..."
+      python3 -c "
+import re
+with open('$claude_md', 'r', encoding='utf-8') as f:
+    content = f.read()
+patterns = [
+    r'## Codex Collaboration Rules.*?(?=\n## (?!Gemini)|\Z)',
+    r'## Codex 协作规则.*?(?=\n## |\Z)',
+    r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Gemini 协作规则.*?(?=\n## |\Z)',
+]
+for p in patterns:
+    content = re.sub(p, '', content, flags=re.DOTALL)
+content = content.rstrip() + '\n'
+with open('$claude_md', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
+      echo "$ccb_content" >> "$claude_md"
+    else
+      echo "$ccb_content" >> "$claude_md"
+    fi
+  else
+    echo "$ccb_content" > "$claude_md"
+  fi
 
   echo "Updated AI collaboration rules in $claude_md"
 }
@@ -751,16 +770,32 @@ uninstall_claude_md_config() {
     return
   fi
 
-  if grep -qE "$RULE_MARKER|$LEGACY_RULE_MARKER|## Gemini" "$claude_md" 2>/dev/null; then
-    echo "正在移除 CLAUDE.md 中的协作规则..."
+  if grep -q "$CCB_START_MARKER" "$claude_md" 2>/dev/null; then
+    echo "正在移除 CLAUDE.md 中的 CCB 配置块..."
     if command -v python3 >/dev/null 2>&1; then
       python3 -c "
 import re
 with open('$claude_md', 'r', encoding='utf-8') as f:
     content = f.read()
-# Remove all collaboration rule sections
+pattern = r'\n?<!-- CCB_CONFIG_START -->.*?<!-- CCB_CONFIG_END -->\n?'
+content = re.sub(pattern, '\n', content, flags=re.DOTALL)
+content = content.strip() + '\n'
+with open('$claude_md', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
+      echo "已移除 CLAUDE.md 中的 CCB 配置"
+    else
+      echo "⚠️ 需要 python3 来清理 CLAUDE.md，请手动移除 CCB_CONFIG 区块"
+    fi
+  elif grep -qE "$LEGACY_RULE_MARKER|## Codex Collaboration Rules|## Gemini" "$claude_md" 2>/dev/null; then
+    echo "正在移除 CLAUDE.md 中的旧版协作规则..."
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -c "
+import re
+with open('$claude_md', 'r', encoding='utf-8') as f:
+    content = f.read()
 patterns = [
-    r'## Codex Collaboration Rules.*?(?=\n## |\Z)',
+    r'## Codex Collaboration Rules.*?(?=\n## (?!Gemini)|\Z)',
     r'## Codex 协作规则.*?(?=\n## |\Z)',
     r'## Gemini Collaboration Rules.*?(?=\n## |\Z)',
     r'## Gemini 协作规则.*?(?=\n## |\Z)',
