@@ -22,6 +22,21 @@ except ImportError as exc:
     sys.exit(1)
 
 
+def _load_cached_reply() -> str | None:
+    """Load cached reply from background cask-w process"""
+    cache_file = Path.home() / ".cache" / "ccb" / "codex_last_reply.txt"
+    if not cache_file.exists():
+        return None
+    try:
+        content = cache_file.read_text(encoding="utf-8").strip()
+        if content:
+            cache_file.unlink()  # Clear after reading
+            return content
+    except Exception:
+        pass
+    return None
+
+
 def _load_pending_state() -> dict:
     """Load pending state saved by cask-w timeout from .codex-session"""
     session_file = Path.cwd() / ".codex-session"
@@ -53,6 +68,13 @@ def _clear_pending_state() -> None:
 
 def main() -> int:
     try:
+        # First check cached reply from background cask-w
+        cached = _load_cached_reply()
+        if cached:
+            print(f"🤖 Codex reply:")
+            print(cached)
+            return 0
+
         comm = CodexCommunicator()
 
         pending = _load_pending_state()

@@ -21,8 +21,30 @@ except ImportError as exc:
     sys.exit(1)
 
 
+def _load_cached_reply() -> str | None:
+    """Load cached reply from background gask-w process"""
+    cache_file = Path.home() / ".cache" / "ccb" / "gemini_last_reply.txt"
+    if not cache_file.exists():
+        return None
+    try:
+        content = cache_file.read_text(encoding="utf-8").strip()
+        if content:
+            cache_file.unlink()  # Clear after reading
+            return content
+    except Exception:
+        pass
+    return None
+
+
 def main() -> int:
     try:
+        # First check cached reply from background gask-w
+        cached = _load_cached_reply()
+        if cached:
+            print(f"🤖 Gemini reply:")
+            print(cached)
+            return 0
+
         comm = GeminiCommunicator()
         output = comm.consume_pending(display=False)
         if output:
