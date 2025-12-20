@@ -347,20 +347,23 @@ class AILauncher:
         Returns (project_hash, has_any_history_for_cwd).
         Gemini CLI stores sessions under ~/.gemini/tmp/<sha256(cwd)>/chats/.
         """
-        # Only trust local project state; deleting local dotfiles should reset resume behavior.
-        project_session = Path.cwd() / ".gemini-session"
-        if not project_session.exists():
-            return None, False
+        # Calculate hash the same way Gemini CLI does (sha256 of absolute path)
+        import hashlib
         try:
-            data = json.loads(project_session.read_text())
+            normalized = str(Path.cwd().expanduser().absolute())
         except Exception:
-            data = {}
-        if not isinstance(data, dict):
-            return None, True
-        project_hash = data.get("gemini_project_hash")
-        if isinstance(project_hash, str) and project_hash.strip():
-            return project_hash.strip(), True
-        return None, True
+            normalized = str(Path.cwd())
+        project_hash = hashlib.sha256(normalized.encode()).hexdigest()
+
+        # Check if actual session files exist
+        gemini_root = Path(os.environ.get("GEMINI_ROOT") or (Path.home() / ".gemini" / "tmp")).expanduser()
+        chats_dir = gemini_root / project_hash / "chats"
+        if not chats_dir.exists():
+            return None, False
+        session_files = list(chats_dir.glob("session-*.json"))
+        if not session_files:
+            return None, False
+        return project_hash, True
 
     def _build_gemini_start_cmd(self) -> str:
         cmd = "gemini --yolo" if self.auto else "gemini"
