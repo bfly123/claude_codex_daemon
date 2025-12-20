@@ -286,32 +286,30 @@ class WeztermBackend(TerminalBackend):
         return cls._wezterm_bin
 
     def send_text(self, pane_id: str, text: str) -> None:
-        sanitized = text.replace("\r", "").strip()
+        sanitized = text.replace("\r", "").replace("\n", "").strip()
         if not sanitized:
             return
-        # tmux 可单独发 Enter 键；wezterm cli 没有 send-key，只能用 send-text 发送控制字符。
-        # 经验上，很多交互式 CLI 在“粘贴/多行输入”里不会自动执行；这里将文本和 Enter 分两次发送更可靠。
         subprocess.run(
-            [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
-            input=sanitized.encode("utf-8"),
+            [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste", sanitized],
             check=True,
         )
-        # 给 TUI 一点时间退出“粘贴/突发输入”路径，再发送 Enter 更像真实按键
-        enter_delay = _env_float("CCB_WEZTERM_ENTER_DELAY", 0.0)
+        enter_delay = _env_float("CCB_WEZTERM_ENTER_DELAY", 0.01)
         if enter_delay:
             time.sleep(enter_delay)
-        try:
-            subprocess.run(
-                [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
-                input=b"\r",
-                check=True,
-            )
-        except subprocess.CalledProcessError:
-            subprocess.run(
-                [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
-                input=b"\n",
-                check=True,
-            )
+        for char in ["\r", "\n", "\r\n"]:
+            try:
+                subprocess.run(
+                    [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste", char],
+                    check=True,
+                )
+                return
+            except subprocess.CalledProcessError:
+                continue
+        subprocess.run(
+            [*self._cli_base_args(), "send-text", "--pane-id", pane_id, "--no-paste"],
+            input=b"\r",
+            check=False,
+        )
 
     def is_alive(self, pane_id: str) -> bool:
         try:

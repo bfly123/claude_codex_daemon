@@ -1086,9 +1086,52 @@ def cmd_update(args):
             print(f"⚠️ Git pull failed: {result.stderr.strip()}")
             print("Falling back to tarball download...")
 
+    def _pick_temp_base_dir() -> Path:
+        candidates: list[Path] = []
+        for key in ("CCB_TMPDIR", "TMPDIR", "TEMP", "TMP"):
+            value = (os.environ.get(key) or "").strip()
+            if value:
+                candidates.append(Path(value).expanduser())
+        try:
+            candidates.append(Path(tempfile.gettempdir()))
+        except Exception:
+            pass
+        candidates.extend(
+            [
+                Path("/tmp"),
+                Path("/var/tmp"),
+                Path("/usr/tmp"),
+                Path.home() / ".cache" / "ccb" / "tmp",
+                install_dir / ".tmp",
+                Path.cwd() / ".tmp",
+            ]
+        )
+
+        for base in candidates:
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+                probe = base / f".ccb_tmp_probe_{os.getpid()}_{int(time.time() * 1000)}"
+                probe.write_bytes(b"1")
+                probe.unlink(missing_ok=True)
+                return base
+            except Exception:
+                continue
+
+        raise RuntimeError(
+            "❌ No usable temporary directory found.\n"
+            "Fix options:\n"
+            "  - Create /tmp (Linux/WSL): sudo mkdir -p /tmp && sudo chmod 1777 /tmp\n"
+            "  - Or set TMPDIR/CCB_TMPDIR to a writable path (e.g. export TMPDIR=$HOME/.cache/tmp)"
+        )
+
     # Method 2: Download tarball
     tarball_url = f"{repo_url}/archive/refs/heads/main.tar.gz"
-    tmp_dir = Path(tempfile.gettempdir()) / "ccb_update"
+    try:
+        tmp_base = _pick_temp_base_dir()
+    except Exception as exc:
+        print(str(exc))
+        return 1
+    tmp_dir = tmp_base / "ccb_update"
 
     try:
         print(f"📥 Downloading latest version...")

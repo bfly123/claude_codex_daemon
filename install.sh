@@ -584,8 +584,8 @@ with open('$claude_md', 'w', encoding='utf-8') as f:
 Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
-- If the user message starts with any of: `调取codex`, `@codex`, `codex:`, `codex：`, `问codex`, `让codex` then immediately run:
-  - `cask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like cping)
+- If the user message starts with any of: `@codex`, `codex:`, `ask codex`, `let codex` then immediately run:
+  - `Bash(cask-w "<message>", run_in_background=true)` (background send, continue immediately)
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -594,23 +594,28 @@ Trigger conditions (any match):
 - User asks about codex's status or previous reply
 
 Command selection:
-- Default ask/collaborate → `cask-w "<question>"` (sync, waits for reply)
-- Send without waiting → `cask "<question>"` (async, returns immediately)
-- Check connectivity → `cping`
-- View previous reply → `cpend`
+- Default ask/collaborate -> `Bash(cask-w "<question>", run_in_background=true)`
+  - Sends in background, returns task_id immediately
+  - Continue with other work, do not wait
+  - Use `TaskOutput(task_id, block=true)` when result is needed
+- Send without waiting -> `cask "<question>"` (async, returns immediately)
+- Check connectivity -> `cping`
+- View previous reply -> `cpend`
+- Get background result -> `TaskOutput(task_id="xxx", block=true)`
 
 Examples:
-- "what does codex think" → cask-w
-- "ask codex to review this" → cask-w
-- "is codex alive" → cping
-- "don't wait for reply" → cask
+- "what does codex think" -> Bash(cask-w, run_in_background=true), then continue
+- "ask codex to review this" -> Bash(cask-w, run_in_background=true), then continue
+- "is codex alive" -> cping
+- "don't wait for reply" -> cask
+- "get codex result" -> TaskOutput(task_id) or cpend
 
 ## Gemini Collaboration Rules
 Gemini is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
-- If the user message starts with any of: `调取gemini`, `@gemini`, `gemini:`, `gemini：`, `问gemini`, `让gemini` then immediately run:
-  - `gask-w "<rest of the message after the prefix>"` (no extra analysis, no pre-checks like gping)
+- If the user message starts with any of: `@gemini`, `gemini:`, `ask gemini`, `let gemini` then immediately run:
+  - `Bash(gask-w "<message>", run_in_background=true)` (background send, continue immediately)
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -619,16 +624,21 @@ Trigger conditions (any match):
 - User asks about gemini's status or previous reply
 
 Command selection:
-- Default ask/collaborate → `gask-w "<question>"` (sync, waits for reply)
-- Send without waiting → `gask "<question>"` (async, returns immediately)
-- Check connectivity → `gping`
-- View previous reply → `gpend`
+- Default ask/collaborate -> `Bash(gask-w "<question>", run_in_background=true)`
+  - Sends in background, returns task_id immediately
+  - Continue with other work, do not wait
+  - Use `TaskOutput(task_id, block=true)` when result is needed
+- Send without waiting -> `gask "<question>"` (async, returns immediately)
+- Check connectivity -> `gping`
+- View previous reply -> `gpend`
+- Get background result -> `TaskOutput(task_id="xxx", block=true)`
 
 Examples:
-- "what does gemini think" → gask-w
-- "ask gemini to review this" → gask-w
-- "is gemini alive" → gping
-- "don't wait for reply" → gask
+- "what does gemini think" -> Bash(gask-w, run_in_background=true), then continue
+- "ask gemini to review this" -> Bash(gask-w, run_in_background=true), then continue
+- "is gemini alive" -> gping
+- "don't wait for reply" -> gask
+- "get gemini result" -> TaskOutput(task_id) or gpend
 AI_RULES
 
   echo "Updated AI collaboration rules in $claude_md"
