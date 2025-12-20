@@ -33,7 +33,7 @@ def main(argv: list[str]) -> int:
 
     try:
         comm = CodexCommunicator(lazy_init=True)
-        reply = comm.ask_sync(message, timeout=0)
+        reply = comm.ask_sync(message)
         return 0 if reply else 1
 
     except Exception as exc:

@@ -2,9 +2,7 @@
 """
 gask-w - Sync send message to Gemini and wait for reply
 """
-
 from __future__ import annotations
-
 import sys
 from pathlib import Path
 
@@ -35,13 +33,13 @@ def main(argv: list[str]) -> int:
 
     try:
         comm = GeminiCommunicator(lazy_init=True)
-        reply = comm.ask_sync(message, timeout=0)
+        reply = comm.ask_sync(message)
         return 0 if reply else 1
 
     except Exception as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+        print(exc, file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    raise SystemExit(main(sys.argv))
