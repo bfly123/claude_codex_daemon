@@ -893,13 +893,20 @@ uninstall_all() {
   done
   echo "已移除 bin 链接: $BIN_DIR"
 
-  # 3. 移除 Claude 命令文件
-  local claude_dir
-  claude_dir="$(detect_claude_dir)"
-  for doc in "${CLAUDE_MARKDOWN[@]}"; do
-    rm -f "$claude_dir/$doc"
+  # 3. 移除 Claude 命令文件（清理所有可能的位置）
+  local cmd_dirs=(
+    "$HOME/.claude/commands"
+    "$HOME/.config/claude/commands"
+    "$HOME/.local/share/claude/commands"
+  )
+  for dir in "${cmd_dirs[@]}"; do
+    if [[ -d "$dir" ]]; then
+      for doc in "${CLAUDE_MARKDOWN[@]}"; do
+        rm -f "$dir/$doc"
+      done
+      echo "已清理命令目录: $dir"
+    fi
   done
-  echo "已移除 Claude 命令: $claude_dir"
 
   # 4. 移除 CLAUDE.md 中的协作规则
   uninstall_claude_md_config
