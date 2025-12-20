@@ -45,24 +45,24 @@ function Require-Python310 {
     $major = [int]$parts[1]
     $minor = [int]$parts[2]
   } catch {
-    Write-Host "❌ Failed to query Python version using: $PythonCmd"
+    Write-Host "[ERROR] Failed to query Python version using: $PythonCmd"
     exit 1
   }
 
   if (($major -ne 3) -or ($minor -lt 10)) {
-    Write-Host "❌ Python version too old: $version"
+    Write-Host "[ERROR] Python version too old: $version"
     Write-Host "   ccb requires Python 3.10+"
     Write-Host "   Download: https://www.python.org/downloads/"
     exit 1
   }
-  Write-Host "✓ Python $version"
+  Write-Host "[OK] Python $version"
 }
 
 function Confirm-BackendEnv {
   if ($Yes -or $env:CCB_INSTALL_ASSUME_YES -eq "1") { return }
 
   if (-not [Environment]::UserInteractive) {
-    Write-Host "❌ Non-interactive environment detected, aborting to prevent Windows/WSL mismatch."
+    Write-Host "[ERROR] Non-interactive environment detected, aborting to prevent Windows/WSL mismatch."
     Write-Host "   If codex/gemini will run in native Windows:"
     Write-Host "   Re-run: powershell -ExecutionPolicy Bypass -File .\install.ps1 install -Yes"
     exit 1
@@ -70,7 +70,7 @@ function Confirm-BackendEnv {
 
   Write-Host ""
   Write-Host "================================================================"
-  Write-Host "⚠️  You are installing ccb in native Windows environment"
+  Write-Host "[WARNING] You are installing ccb in native Windows environment"
   Write-Host "================================================================"
   Write-Host "ccb/cask-w must run in the same environment as codex/gemini."
   Write-Host ""
