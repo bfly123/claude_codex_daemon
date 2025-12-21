@@ -526,15 +526,34 @@ copy_project() {
   trap - EXIT
 
   # Update GIT_COMMIT and GIT_DATE in ccb file
+  local git_commit="" git_date=""
+
+  # Method 1: From git repo
   if command -v git >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.git" ]]; then
-    local git_commit git_date
     git_commit=$(git -C "$REPO_ROOT" log -1 --format='%h' 2>/dev/null || echo "")
     git_date=$(git -C "$REPO_ROOT" log -1 --format='%cs' 2>/dev/null || echo "")
-    if [[ -n "$git_commit" && -f "$INSTALL_PREFIX/ccb" ]]; then
-      sed -i.bak "s/^GIT_COMMIT = .*/GIT_COMMIT = \"$git_commit\"/" "$INSTALL_PREFIX/ccb"
-      sed -i.bak "s/^GIT_DATE = .*/GIT_DATE = \"$git_date\"/" "$INSTALL_PREFIX/ccb"
-      rm -f "$INSTALL_PREFIX/ccb.bak"
+  fi
+
+  # Method 2: From environment variables (set by ccb update)
+  if [[ -z "$git_commit" && -n "${CCB_GIT_COMMIT:-}" ]]; then
+    git_commit="$CCB_GIT_COMMIT"
+    git_date="${CCB_GIT_DATE:-}"
+  fi
+
+  # Method 3: From GitHub API (fallback)
+  if [[ -z "$git_commit" ]] && command -v curl >/dev/null 2>&1; then
+    local api_response
+    api_response=$(curl -fsSL "https://api.github.com/repos/bfly123/claude_code_bridge/commits/main" 2>/dev/null || echo "")
+    if [[ -n "$api_response" ]]; then
+      git_commit=$(echo "$api_response" | grep -o '"sha": "[^"]*"' | head -1 | cut -d'"' -f4 | cut -c1-7)
+      git_date=$(echo "$api_response" | grep -o '"date": "[^"]*"' | head -1 | cut -d'"' -f4 | cut -c1-10)
     fi
+  fi
+
+  if [[ -n "$git_commit" && -f "$INSTALL_PREFIX/ccb" ]]; then
+    sed -i.bak "s/^GIT_COMMIT = .*/GIT_COMMIT = \"$git_commit\"/" "$INSTALL_PREFIX/ccb"
+    sed -i.bak "s/^GIT_DATE = .*/GIT_DATE = \"$git_date\"/" "$INSTALL_PREFIX/ccb"
+    rm -f "$INSTALL_PREFIX/ccb.bak"
   fi
 }
 
