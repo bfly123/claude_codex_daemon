@@ -9,13 +9,13 @@
 # --- UTF-8 / BOM compatibility (Windows PowerShell 5.1) ---
 # Keep this near the top so Chinese/emoji output is rendered correctly.
 try {
-  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  $script:utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 } catch {
-  $utf8NoBom = [System.Text.Encoding]::UTF8
+  $script:utf8NoBom = [System.Text.Encoding]::UTF8
 }
-try { $OutputEncoding = $utf8NoBom } catch {}
-try { [Console]::OutputEncoding = $utf8NoBom } catch {}
-try { [Console]::InputEncoding = $utf8NoBom } catch {}
+try { $OutputEncoding = $script:utf8NoBom } catch {}
+try { [Console]::OutputEncoding = $script:utf8NoBom } catch {}
+try { [Console]::InputEncoding = $script:utf8NoBom } catch {}
 try { chcp 65001 | Out-Null } catch {}
 
 $ErrorActionPreference = "Stop"
@@ -164,17 +164,45 @@ function Install-Native {
     }
   }
 
+  function Fix-PythonShebang {
+    param([string]$TargetPath)
+    if (-not $TargetPath -or -not (Test-Path $TargetPath)) { return }
+    try {
+      $text = [System.IO.File]::ReadAllText($TargetPath, [System.Text.Encoding]::UTF8)
+      if ($text -match '^\#\!/usr/bin/env python3') {
+        $text = $text -replace '^\#\!/usr/bin/env python3', '#!/usr/bin/env python'
+        [System.IO.File]::WriteAllText($TargetPath, $text, $script:utf8NoBom)
+      }
+    } catch {
+      return
+    }
+  }
+
   $scripts = @("ccb", "cask", "cask-w", "cping", "cpend", "gask", "gask-w", "gping", "gpend")
+
+  # In MSYS/Git-Bash, invoking the script file directly will honor the shebang.
+  # Windows typically has `python` but not `python3`, so rewrite shebangs for compatibility.
+  foreach ($script in $scripts) {
+    if ($script -eq "ccb") {
+      Fix-PythonShebang (Join-Path $InstallPrefix "ccb")
+    } else {
+      Fix-PythonShebang (Join-Path $InstallPrefix ("bin\\" + $script))
+    }
+  }
+
   foreach ($script in $scripts) {
     $batPath = Join-Path $binDir "$script.bat"
+    $cmdPath = Join-Path $binDir "$script.cmd"
     if ($script -eq "ccb") {
       $relPath = "..\\ccb"
     } else {
-      $relPath = "..\\bin\\$script"
+      # Script is installed alongside the wrapper under $InstallPrefix\bin
+      $relPath = $script
     }
-    $batContent = "@echo off`r`n$pythonCmd `"%~dp0$relPath`" %*"
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($batPath, $batContent, $utf8NoBom)
+    $wrapperContent = "@echo off`r`nset `"PYTHON=python`"`r`nwhere python >NUL 2>&1 || set `"PYTHON=py -3`"`r`n%PYTHON% `"%~dp0$relPath`" %*"
+    [System.IO.File]::WriteAllText($batPath, $wrapperContent, $script:utf8NoBom)
+    # .cmd wrapper for PowerShell/CMD users (and tools preferring .cmd over raw shebang scripts)
+    [System.IO.File]::WriteAllText($cmdPath, $wrapperContent, $script:utf8NoBom)
   }
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
