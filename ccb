@@ -37,8 +37,8 @@ if backend_env and not os.environ.get("CCB_BACKEND_ENV"):
     os.environ["CCB_BACKEND_ENV"] = backend_env
 
 VERSION = "2.2"
-GIT_COMMIT = ""  # Updated by install.sh
-GIT_DATE = ""    # Updated by install.sh
+GIT_COMMIT = ""
+GIT_DATE = ""
 
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:([/\\\\]|$)")
 _MNT_DRIVE_RE = re.compile(r"^/mnt/([A-Za-z])/(.*)$")
