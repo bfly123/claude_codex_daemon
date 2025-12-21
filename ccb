@@ -63,6 +63,29 @@ def _normalize_path_for_match(value: str) -> str:
     if not s:
         return ""
 
+    # Expand "~" early (common in shell-originated values). If expansion fails, keep original.
+    if s.startswith("~"):
+        try:
+            s = os.path.expanduser(s)
+        except Exception:
+            pass
+
+    # If the path is relative, absolutize it against current cwd for matching purposes only.
+    # This reduces false negatives when upstream tools record a relative cwd.
+    # NOTE: treat Windows-like absolute paths as absolute even on non-Windows hosts.
+    try:
+        preview = s.replace("\\", "/")
+        is_abs = (
+            preview.startswith("/")
+            or preview.startswith("//")
+            or bool(_WIN_DRIVE_RE.match(preview))
+            or preview.startswith("\\\\")
+        )
+        if not is_abs:
+            s = str((Path.cwd() / Path(s)).absolute())
+    except Exception:
+        pass
+
     s = s.replace("\\", "/")
 
     # Map WSL drive mount to Windows-style drive path for comparison.
@@ -503,23 +526,40 @@ class AILauncher:
         Returns (project_hash, has_any_history_for_cwd).
         Gemini CLI stores sessions under ~/.gemini/tmp/<sha256(cwd)>/chats/.
         """
-        # Calculate hash the same way Gemini CLI does (sha256 of absolute path)
         import hashlib
-        try:
-            normalized = str(Path.cwd().expanduser().absolute())
-        except Exception:
-            normalized = str(Path.cwd())
-        project_hash = hashlib.sha256(normalized.encode()).hexdigest()
 
-        # Check if actual session files exist
         gemini_root = Path(os.environ.get("GEMINI_ROOT") or (Path.home() / ".gemini" / "tmp")).expanduser()
-        chats_dir = gemini_root / project_hash / "chats"
-        if not chats_dir.exists():
-            return None, False
-        session_files = list(chats_dir.glob("session-*.json"))
-        if not session_files:
-            return None, False
-        return project_hash, True
+
+        candidates: list[str] = []
+        try:
+            candidates.append(str(Path.cwd().absolute()))
+        except Exception:
+            pass
+        try:
+            candidates.append(str(Path.cwd().resolve()))
+        except Exception:
+            pass
+        env_pwd = (os.environ.get("PWD") or "").strip()
+        if env_pwd:
+            try:
+                candidates.append(os.path.abspath(os.path.expanduser(env_pwd)))
+            except Exception:
+                candidates.append(env_pwd)
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            project_hash = hashlib.sha256(candidate.encode()).hexdigest()
+            chats_dir = gemini_root / project_hash / "chats"
+            if not chats_dir.exists():
+                continue
+            session_files = list(chats_dir.glob("session-*.json"))
+            if session_files:
+                return project_hash, True
+
+        return None, False
 
     def _build_gemini_start_cmd(self) -> str:
         cmd = "gemini --yolo" if self.auto else "gemini"
