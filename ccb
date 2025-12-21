@@ -277,14 +277,17 @@ class AILauncher:
         try:
             if not path.exists():
                 return {}
-            data = json.loads(path.read_text())
+            # Session files are written as UTF-8; on Windows PowerShell 5.1 the default encoding
+            # may not be UTF-8, so always decode explicitly and tolerate UTF-8 BOM.
+            raw = path.read_text(encoding="utf-8-sig")
+            data = json.loads(raw)
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
 
     def _write_json_file(self, path: Path, data: dict) -> None:
         try:
-            path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
 
@@ -320,13 +323,10 @@ class AILauncher:
         # Only trust local project state; deleting local dotfiles should reset resume behavior.
         project_session = Path.cwd() / ".codex-session"
         if project_session.exists():
-            try:
-                data = json.loads(project_session.read_text())
-                cached = data.get("codex_session_id")
-                if isinstance(cached, str) and cached:
-                    return cached, True
-            except Exception:
-                pass
+            data = self._read_json_file(project_session)
+            cached = data.get("codex_session_id")
+            if isinstance(cached, str) and cached:
+                return cached, True
         return None, False
 
     def _build_codex_start_cmd(self) -> str:
@@ -552,10 +552,7 @@ exec tmux attach -t "$TMUX_SESSION"
 
         data = {}
         if session_file.exists():
-            try:
-                data = json.loads(session_file.read_text())
-            except Exception:
-                pass
+            data = self._read_json_file(session_file)
 
         data.update({
             "session_id": self.session_id,
@@ -790,10 +787,12 @@ exec tmux attach -t "$TMUX_SESSION"
         for session_file in [Path.cwd() / ".codex-session", Path.cwd() / ".gemini-session", Path.cwd() / ".claude-session"]:
             if session_file.exists():
                 try:
-                    data = json.loads(session_file.read_text())
+                    data = self._read_json_file(session_file)
+                    if not data:
+                        continue
                     data["active"] = False
                     data["ended_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+                    safe_write_session(session_file, json.dumps(data, ensure_ascii=False, indent=2))
                 except Exception:
                     pass
 
@@ -874,7 +873,7 @@ def cmd_status(args):
             continue
 
         try:
-            data = json.loads(session_file.read_text())
+            data = json.loads(session_file.read_text(encoding="utf-8-sig"))
             terminal = data.get("terminal", "tmux")
             pane_id = data.get("pane_id") if terminal in ("wezterm", "iterm2") else data.get("tmux_session", "")
             active = data.get("active", False)
@@ -921,7 +920,7 @@ def cmd_kill(args):
             continue
 
         try:
-            data = json.loads(session_file.read_text())
+            data = json.loads(session_file.read_text(encoding="utf-8-sig"))
             terminal = data.get("terminal", "tmux")
             pane_id = data.get("pane_id") if terminal in ("wezterm", "iterm2") else data.get("tmux_session", "")
 
@@ -937,7 +936,7 @@ def cmd_kill(args):
 
             data["active"] = False
             data["ended_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            session_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+            safe_write_session(session_file, json.dumps(data, ensure_ascii=False, indent=2))
 
             print(f"✅ {provider.capitalize()} terminated")
         except Exception as e:
@@ -956,7 +955,7 @@ def cmd_restore(args):
             continue
 
         try:
-            data = json.loads(session_file.read_text())
+            data = json.loads(session_file.read_text(encoding="utf-8-sig"))
             terminal = data.get("terminal", "tmux")
             pane_id = data.get("pane_id") if terminal in ("wezterm", "iterm2") else data.get("tmux_session", "")
             active = data.get("active", False)
@@ -1210,7 +1209,7 @@ def main():
     # up subcommand
     up_parser = subparsers.add_parser("up", help="Start AI backends")
     up_parser.add_argument("providers", nargs="*", choices=["codex", "gemini"], help="Backends to start")
-    up_parser.add_argument("-r", "--resume", action="store_true", help="Resume context")
+    up_parser.add_argument("-r", "--resume", "--restore", action="store_true", help="Resume context")
     up_parser.add_argument("-a", "--auto", action="store_true", help="Full auto permission mode")
     up_parser.add_argument("--no-claude", action="store_true", help="Don't start Claude main window")
 
@@ -1229,7 +1228,11 @@ def main():
     # update subcommand
     update_parser = subparsers.add_parser("update", help="Update to latest version")
 
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+    # Backward/shortcut compatibility: allow `ccb -r` to behave like `ccb up -r` (default provider).
+    if argv and argv[0] in {"-r", "--resume", "--restore"}:
+        argv = ["up"] + argv
+    args = parser.parse_args(argv)
 
     if not args.command:
         parser.print_help()
