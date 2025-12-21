@@ -524,6 +524,18 @@ copy_project() {
   mkdir -p "$(dirname "$INSTALL_PREFIX")"
   mv "$staging" "$INSTALL_PREFIX"
   trap - EXIT
+
+  # Update GIT_COMMIT and GIT_DATE in ccb file
+  if command -v git >/dev/null 2>&1 && [[ -d "$REPO_ROOT/.git" ]]; then
+    local git_commit git_date
+    git_commit=$(git -C "$REPO_ROOT" log -1 --format='%h' 2>/dev/null || echo "")
+    git_date=$(git -C "$REPO_ROOT" log -1 --format='%cs' 2>/dev/null || echo "")
+    if [[ -n "$git_commit" && -f "$INSTALL_PREFIX/ccb" ]]; then
+      sed -i.bak "s/^GIT_COMMIT = .*/GIT_COMMIT = \"$git_commit\"/" "$INSTALL_PREFIX/ccb"
+      sed -i.bak "s/^GIT_DATE = .*/GIT_DATE = \"$git_date\"/" "$INSTALL_PREFIX/ccb"
+      rm -f "$INSTALL_PREFIX/ccb.bak"
+    fi
+  fi
 }
 
 install_bin_links() {

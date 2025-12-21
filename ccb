@@ -37,6 +37,8 @@ if backend_env and not os.environ.get("CCB_BACKEND_ENV"):
     os.environ["CCB_BACKEND_ENV"] = backend_env
 
 VERSION = "2.2"
+GIT_COMMIT = ""  # Updated by install.sh
+GIT_DATE = ""    # Updated by install.sh
 
 _WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:([/\\\\]|$)")
 _MNT_DRIVE_RE = re.compile(r"^/mnt/([A-Za-z])/(.*)$")
@@ -1263,20 +1265,29 @@ def cmd_update(args):
     def _get_version_info(dir_path: Path) -> dict:
         """Get commit hash, date and version from install directory"""
         info = {"commit": None, "date": None, "version": None}
-        # Get version from ccb file first (works without git)
+        # Get version, commit, date from ccb file (works without git)
         ccb_file = dir_path / "ccb"
         if ccb_file.exists():
             try:
                 content = ccb_file.read_text(encoding='utf-8', errors='replace')
-                for line in content.split('\n')[:50]:
-                    if line.startswith('VERSION'):
+                for line in content.split('\n')[:60]:
+                    line = line.strip()
+                    if line.startswith('VERSION') and '=' in line:
                         # VERSION = "2.2"
-                        version = line.split('=')[1].strip().strip('"').strip("'")
-                        info["version"] = version
-                        break
+                        info["version"] = line.split('=')[1].strip().strip('"').strip("'")
+                    elif line.startswith('GIT_COMMIT') and '=' in line:
+                        # GIT_COMMIT = "abc1234"
+                        val = line.split('=')[1].strip().strip('"').strip("'")
+                        if val:
+                            info["commit"] = val
+                    elif line.startswith('GIT_DATE') and '=' in line:
+                        # GIT_DATE = "2025-12-21"
+                        val = line.split('=')[1].strip().strip('"').strip("'")
+                        if val:
+                            info["date"] = val
             except Exception:
                 pass
-        # Get commit hash and date if git available
+        # Override with live git info if available
         if shutil.which("git") and (dir_path / ".git").exists():
             result = subprocess.run(
                 ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
