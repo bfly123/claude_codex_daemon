@@ -1263,19 +1263,7 @@ def cmd_update(args):
     def _get_version_info(dir_path: Path) -> dict:
         """Get commit hash, date and version from install directory"""
         info = {"commit": None, "date": None, "version": None}
-        if not shutil.which("git") or not (dir_path / ".git").exists():
-            return info
-        # Get commit hash and date
-        result = subprocess.run(
-            ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
-            capture_output=True, text=True, encoding='utf-8', errors='replace'
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split("|")
-            if len(parts) >= 2:
-                info["commit"] = parts[0]
-                info["date"] = parts[1].split()[0]  # YYYY-MM-DD
-        # Get version from ccb file
+        # Get version from ccb file first (works without git)
         ccb_file = dir_path / "ccb"
         if ccb_file.exists():
             try:
@@ -1288,6 +1276,17 @@ def cmd_update(args):
                         break
             except Exception:
                 pass
+        # Get commit hash and date if git available
+        if shutil.which("git") and (dir_path / ".git").exists():
+            result = subprocess.run(
+                ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
+                capture_output=True, text=True, encoding='utf-8', errors='replace'
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split("|")
+                if len(parts) >= 2:
+                    info["commit"] = parts[0]
+                    info["date"] = parts[1].split()[0]  # YYYY-MM-DD
         return info
 
     def _format_version_info(info: dict) -> str:
