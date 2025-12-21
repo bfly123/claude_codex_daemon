@@ -54,6 +54,17 @@ def main(argv: list[str]) -> int:
         except Exception:
             return
 
+    # Save to cache
+    cache_dir = Path.home() / ".cache" / "ccb"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    reply_file = cache_dir / "gemini_last_reply.txt"
+    # Clear stale cache
+    if reply_file.exists():
+        try:
+            reply_file.unlink()
+        except Exception:
+            pass
+
     try:
         comm = GeminiCommunicator(lazy_init=True)
 

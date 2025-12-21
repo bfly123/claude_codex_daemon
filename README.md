@@ -6,7 +6,7 @@
 
 **Windows | macOS | Linux — One Tool, All Platforms**
 
-[![Version](https://img.shields.io/badge/version-2.1-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-2.2-orange.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
