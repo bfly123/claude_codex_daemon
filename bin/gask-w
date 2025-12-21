@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+import json
 
 script_dir = Path(__file__).resolve().parent
 lib_dir = script_dir.parent / "lib"
@@ -30,6 +31,29 @@ def main(argv: list[str]) -> int:
     from gemini_comm import GeminiCommunicator
     from i18n import t
 
+    def save_pending_state(state: dict) -> None:
+        session_file = Path.cwd() / ".gemini-session"
+        if not session_file.exists():
+            return
+        try:
+            with session_file.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            data["pending_state"] = {
+                "session_path": str(state.get("session_path")) if state.get("session_path") else None,
+                "msg_count": int(state.get("msg_count", 0) or 0),
+                "mtime": float(state.get("mtime", 0.0) or 0.0),
+                "mtime_ns": int(state.get("mtime_ns", 0) or 0),
+                "size": int(state.get("size", 0) or 0),
+                "last_gemini_id": state.get("last_gemini_id"),
+                "last_gemini_hash": state.get("last_gemini_hash"),
+            }
+            tmp_file = session_file.with_suffix(".tmp")
+            with tmp_file.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, session_file)
+        except Exception:
+            return
+
     try:
         comm = GeminiCommunicator(lazy_init=True)
 
@@ -41,12 +65,14 @@ def main(argv: list[str]) -> int:
 
         # Send message
         print(f"🔔 {t('sending_to', provider='Gemini')}", flush=True)
-        state = comm.log_reader.capture_state()
-        comm._send_via_terminal(message)
+        marker, state = comm._send_message(message)
+        comm._remember_gemini_session(state.get("session_path") or comm.log_reader.current_session_path())
 
         # Pure sync wait (default 1 hour, configurable via CCB_SYNC_TIMEOUT)
         sync_timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
-        message_reply, _ = comm.log_reader.wait_for_message(state, sync_timeout)
+        message_reply, new_state = comm.log_reader.wait_for_message(state, sync_timeout)
+        state = new_state or state
+        comm._remember_gemini_session(state.get("session_path") or comm.log_reader.current_session_path())
 
         # Save to cache
         cache_dir = Path.home() / ".cache" / "ccb"
@@ -59,8 +85,16 @@ def main(argv: list[str]) -> int:
             reply_file.write_text(message_reply, encoding="utf-8")
         else:
             print(f"⏰ Timeout after {int(sync_timeout)}s")
+            save_pending_state(state)
         return 0
 
+    except KeyboardInterrupt:
+        try:
+            save_pending_state(locals().get("state", {}) if isinstance(locals().get("state"), dict) else {})
+        except Exception:
+            pass
+        print("❌ Interrupted", file=sys.stderr)
+        return 130
     except Exception as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1

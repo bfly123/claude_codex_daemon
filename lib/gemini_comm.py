@@ -363,6 +363,7 @@ class GeminiCommunicator:
         self.terminal = self.session_info.get("terminal", "tmux")
         self.pane_id = get_pane_id_from_session(self.session_info)
         self.timeout = int(os.environ.get("GEMINI_SYNC_TIMEOUT", "60"))
+        self.marker_prefix = "ask"
         self.project_session_file = self.session_info.get("_session_file")
         self.backend = get_backend_for_session(self.session_info)
 
@@ -463,6 +464,15 @@ class GeminiCommunicator:
             raise RuntimeError("Terminal session not configured")
         self.backend.send_text(self.pane_id, content)
         return True
+
+    def _send_message(self, content: str) -> Tuple[str, Dict[str, Any]]:
+        marker = self._generate_marker()
+        state = self.log_reader.capture_state()
+        self._send_via_terminal(content)
+        return marker, state
+
+    def _generate_marker(self) -> str:
+        return f"{self.marker_prefix}-{int(time.time())}-{os.getpid()}"
 
     def ask_async(self, question: str) -> bool:
         try:
