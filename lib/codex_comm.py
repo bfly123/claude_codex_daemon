@@ -102,12 +102,17 @@ class CodexLogReader:
     def capture_state(self) -> Dict[str, Any]:
         """Capture current log path and offset"""
         log = self._latest_log()
-        offset = 0
+        offset = -1
         if log and log.exists():
             try:
                 offset = log.stat().st_size
             except OSError:
-                offset = 0
+                try:
+                    with log.open("rb") as handle:
+                        handle.seek(0, os.SEEK_END)
+                        offset = handle.tell()
+                except OSError:
+                    offset = -1
         return {"log_path": log, "offset": offset}
 
     def wait_for_message(self, state: Dict[str, Any], timeout: float) -> Tuple[Optional[str], Dict[str, Any]]:
@@ -155,7 +160,9 @@ class CodexLogReader:
     def _read_since(self, state: Dict[str, Any], timeout: float, block: bool) -> Tuple[Optional[str], Dict[str, Any]]:
         deadline = time.time() + timeout
         current_path = self._normalize_path(state.get("log_path"))
-        offset = state.get("offset", 0)
+        offset = state.get("offset", -1)
+        if not isinstance(offset, int):
+            offset = -1
         # Keep rescans infrequent; new messages usually append to the same log file.
         rescan_interval = min(2.0, max(0.2, timeout / 2.0))
         last_rescan = time.time()
@@ -183,14 +190,27 @@ class CodexLogReader:
                 time.sleep(self._poll_interval)
                 continue
 
-            with log_path.open("r", encoding="utf-8", errors="ignore") as fh:
+            try:
+                size = log_path.stat().st_size
+            except OSError:
+                size = None
+
+            # If caller couldn't capture a baseline, establish it now (start from EOF).
+            if offset < 0:
+                offset = size if isinstance(size, int) else 0
+
+            with log_path.open("rb") as fh:
                 try:
-                    size = log_path.stat().st_size
+                    if isinstance(size, int) and offset > size:
+                        offset = size
+                    fh.seek(offset, os.SEEK_SET)
                 except OSError:
-                    size = None
-                if isinstance(size, int) and offset > size:
-                    offset = size
-                fh.seek(offset)
+                    # If seek fails, reset to EOF and try again on next loop.
+                    offset = size if isinstance(size, int) else 0
+                    if not block:
+                        return None, {"log_path": log_path, "offset": offset}
+                    time.sleep(self._poll_interval)
+                    continue
                 while True:
                     if block and time.time() >= deadline:
                         return None, {"log_path": log_path, "offset": offset}
@@ -199,11 +219,11 @@ class CodexLogReader:
                     if not raw_line:
                         break
                     # If we hit EOF without a newline, the writer may still be appending this line.
-                    if not raw_line.endswith("\n"):
+                    if not raw_line.endswith(b"\n"):
                         fh.seek(pos_before)
                         break
                     offset = fh.tell()
-                    line = raw_line.strip()
+                    line = raw_line.decode("utf-8", errors="ignore").strip()
                     if not line:
                         continue
                     try:
@@ -219,8 +239,11 @@ class CodexLogReader:
                 if latest and latest != log_path:
                     current_path = latest
                     self._preferred_log = latest
-                    # When switching to a new log file (rotation/session change), start from the beginning.
-                    offset = 0
+                    # When switching to a new log file, start from EOF to avoid replaying old content.
+                    try:
+                        offset = latest.stat().st_size
+                    except OSError:
+                        offset = 0
                     if not block:
                         return None, {"log_path": current_path, "offset": offset}
                     time.sleep(self._poll_interval)
