@@ -64,8 +64,6 @@ class CodexLogReader:
             latest_mtime = -1.0
             for p in (p for p in self.root.glob("**/*.jsonl") if p.is_file()):
                 try:
-                    if self._session_id_filter and self._session_id_filter not in p.name:
-                        continue
                     mtime = p.stat().st_mtime
                 except OSError:
                     continue

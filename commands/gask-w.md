@@ -10,7 +10,7 @@ Parameters:
 
 Workflow:
 1. Start gask-w in background -> get task_id
-2. Inform user: "Gemini processing in background (task: xxx), use /gpend to check reply"
+2. Inform user: "Gemini processing in background (task: xxx)"
 3. STOP and continue conversation - do NOT block waiting
 
 When user wants result:
