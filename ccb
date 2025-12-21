@@ -125,6 +125,19 @@ def _work_dir_match_keys(work_dir: Path) -> set[str]:
     return keys
 
 
+def _extract_session_work_dir_norm(session_data: dict) -> str:
+    """Extract a normalized work dir marker from a session file payload."""
+    if not isinstance(session_data, dict):
+        return ""
+    raw_norm = session_data.get("work_dir_norm")
+    if isinstance(raw_norm, str) and raw_norm.strip():
+        return _normalize_path_for_match(raw_norm)
+    raw = session_data.get("work_dir")
+    if isinstance(raw, str) and raw.strip():
+        return _normalize_path_for_match(raw)
+    return ""
+
+
 def _get_git_info() -> str:
     try:
         result = subprocess.run(
@@ -386,11 +399,13 @@ class AILauncher:
         sid = data.get("claude_session_id") or data.get("session_id")
         if isinstance(sid, str) and sid.strip():
             # Guard against path-format mismatch (Windows case/slash differences, MSYS paths, etc.).
-            recorded = data.get("work_dir")
-            if isinstance(recorded, str) and recorded.strip():
-                current_keys = _work_dir_match_keys(Path.cwd())
-                if current_keys and _normalize_path_for_match(recorded) not in current_keys:
-                    return None
+            recorded_norm = _extract_session_work_dir_norm(data)
+            if not recorded_norm:
+                # Old/foreign session file without a recorded work dir: refuse to resume to avoid cross-project reuse.
+                return None
+            current_keys = _work_dir_match_keys(Path.cwd())
+            if current_keys and recorded_norm not in current_keys:
+                return None
             return sid.strip()
         return None
 
@@ -421,7 +436,11 @@ class AILauncher:
             data = self._read_json_file(project_session)
             cached = data.get("codex_session_id")
             if isinstance(cached, str) and cached:
-                return cached, True
+                recorded_norm = _extract_session_work_dir_norm(data)
+                if recorded_norm:
+                    work_keys = _work_dir_match_keys(Path.cwd())
+                    if not work_keys or recorded_norm in work_keys:
+                        return cached, True
 
         # Fallback: scan Codex session logs for the latest session bound to this cwd.
         # This handles cases where `.codex-session` exists but never got updated with `codex_session_id`
@@ -1120,7 +1139,12 @@ def cmd_restore(args):
                 if provider == "codex":
                     session_id = data.get("codex_session_id")
                     if isinstance(session_id, str) and session_id:
-                        has_history = True
+                        recorded_norm = _extract_session_work_dir_norm(data)
+                        work_keys = _work_dir_match_keys(Path.cwd())
+                        if recorded_norm and (not work_keys or recorded_norm in work_keys):
+                            has_history = True
+                        else:
+                            session_id = None
                     else:
                         # Fallback: scan ~/.codex/sessions for latest session bound to this cwd.
                         root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
