@@ -19,6 +19,7 @@ import platform
 import tempfile
 import re
 import shutil
+import posixpath
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -36,6 +37,92 @@ if backend_env and not os.environ.get("CCB_BACKEND_ENV"):
     os.environ["CCB_BACKEND_ENV"] = backend_env
 
 VERSION = "2.2"
+
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:([/\\\\]|$)")
+_MNT_DRIVE_RE = re.compile(r"^/mnt/([A-Za-z])/(.*)$")
+_MSYS_DRIVE_RE = re.compile(r"^/([A-Za-z])/(.*)$")
+
+
+def _looks_like_windows_path(value: str) -> bool:
+    s = value.strip()
+    if not s:
+        return False
+    if _WIN_DRIVE_RE.match(s):
+        return True
+    if s.startswith("\\\\") or s.startswith("//"):
+        return True
+    return False
+
+
+def _normalize_path_for_match(value: str) -> str:
+    """
+    Normalize a path-like string for loose matching across Windows/WSL/MSYS variations.
+    This is used only for selecting a session for *current* cwd, so favor robustness.
+    """
+    s = (value or "").strip()
+    if not s:
+        return ""
+
+    s = s.replace("\\", "/")
+
+    # Map WSL drive mount to Windows-style drive path for comparison.
+    m = _MNT_DRIVE_RE.match(s)
+    if m:
+        drive = m.group(1).lower()
+        rest = m.group(2)
+        s = f"{drive}:/{rest}"
+    else:
+        # Map MSYS /c/... to c:/... (Git-Bash/MSYS2 environments on Windows).
+        m = _MSYS_DRIVE_RE.match(s)
+        if m and ("MSYSTEM" in os.environ or os.name == "nt"):
+            drive = m.group(1).lower()
+            rest = m.group(2)
+            s = f"{drive}:/{rest}"
+
+    # Collapse redundant separators and dot segments using POSIX semantics (we forced "/").
+    # Preserve UNC double-slash prefix.
+    if s.startswith("//"):
+        prefix = "//"
+        rest = s[2:]
+        rest = posixpath.normpath(rest)
+        s = prefix + rest.lstrip("/")
+    else:
+        s = posixpath.normpath(s)
+
+    # Normalize Windows drive letter casing (c:/..., not C:/...).
+    if _WIN_DRIVE_RE.match(s):
+        s = s[0].lower() + s[1:]
+
+    # Drop trailing slash (but keep "/" and "c:/").
+    if len(s) > 1 and s.endswith("/"):
+        s = s.rstrip("/")
+        if _WIN_DRIVE_RE.match(s) and not s.endswith("/"):
+            # Ensure drive root keeps trailing slash form "c:/".
+            if len(s) == 2:
+                s = s + "/"
+
+    # On Windows-like paths, compare case-insensitively to avoid drive letter/case issues.
+    if _looks_like_windows_path(s):
+        s = s.casefold()
+
+    return s
+
+
+def _work_dir_match_keys(work_dir: Path) -> set[str]:
+    keys: set[str] = set()
+    candidates: list[str] = []
+    for raw in (os.environ.get("PWD"), str(work_dir)):
+        if raw:
+            candidates.append(raw)
+    try:
+        candidates.append(str(work_dir.resolve()))
+    except Exception:
+        pass
+    for candidate in candidates:
+        normalized = _normalize_path_for_match(candidate)
+        if normalized:
+            keys.add(normalized)
+    return keys
 
 
 def _get_git_info() -> str:
@@ -298,16 +385,24 @@ class AILauncher:
         data = self._read_json_file(self._claude_session_file())
         sid = data.get("claude_session_id") or data.get("session_id")
         if isinstance(sid, str) and sid.strip():
+            # Guard against path-format mismatch (Windows case/slash differences, MSYS paths, etc.).
+            recorded = data.get("work_dir")
+            if isinstance(recorded, str) and recorded.strip():
+                current_keys = _work_dir_match_keys(Path.cwd())
+                if current_keys and _normalize_path_for_match(recorded) not in current_keys:
+                    return None
             return sid.strip()
         return None
 
     def _write_local_claude_session(self, session_id: str, active: bool = True) -> None:
         path = self._claude_session_file()
         data = self._read_json_file(path)
+        work_dir = Path.cwd()
         data.update(
             {
                 "claude_session_id": session_id,
-                "work_dir": str(Path.cwd()),
+                "work_dir": str(work_dir),
+                "work_dir_norm": _normalize_path_for_match(str(work_dir)),
                 "active": bool(active),
                 "started_at": data.get("started_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
                 "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -327,6 +422,47 @@ class AILauncher:
             cached = data.get("codex_session_id")
             if isinstance(cached, str) and cached:
                 return cached, True
+
+        # Fallback: scan Codex session logs for the latest session bound to this cwd.
+        # This handles cases where `.codex-session` exists but never got updated with `codex_session_id`
+        # (e.g., user closed the backend before sending any message through the bridge).
+        root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
+        if not root.exists():
+            return None, False
+        work_keys = _work_dir_match_keys(Path.cwd())
+        if not work_keys:
+            return None, False
+        try:
+            logs = sorted(
+                (p for p in root.glob("**/*.jsonl") if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except Exception:
+            logs = []
+        for log_path in logs[:400]:
+            try:
+                with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    first = handle.readline().strip()
+            except OSError:
+                continue
+            if not first:
+                continue
+            try:
+                entry = json.loads(first)
+            except Exception:
+                continue
+            if not isinstance(entry, dict) or entry.get("type") != "session_meta":
+                continue
+            payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+            cwd = payload.get("cwd")
+            if not isinstance(cwd, str) or not cwd.strip():
+                continue
+            if _normalize_path_for_match(cwd) not in work_keys:
+                continue
+            sid = payload.get("id")
+            if isinstance(sid, str) and sid:
+                return sid, True
         return None, False
 
     def _build_codex_start_cmd(self) -> str:
@@ -554,6 +690,7 @@ exec tmux attach -t "$TMUX_SESSION"
         if session_file.exists():
             data = self._read_json_file(session_file)
 
+        work_dir = Path.cwd()
         data.update({
             "session_id": self.session_id,
             "runtime_dir": str(runtime),
@@ -563,7 +700,8 @@ exec tmux attach -t "$TMUX_SESSION"
             "tmux_session": tmux_session,
             "pane_id": pane_id,
             "tmux_log": str(runtime / "bridge_output.log"),
-            "work_dir": str(Path.cwd()),
+            "work_dir": str(work_dir),
+            "work_dir_norm": _normalize_path_for_match(str(work_dir)),
             "active": True,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
@@ -986,11 +1124,7 @@ def cmd_restore(args):
                     else:
                         # Fallback: scan ~/.codex/sessions for latest session bound to this cwd.
                         root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
-                        work_dirs = set([os.environ.get("PWD", ""), str(Path.cwd())])
-                        try:
-                            work_dirs.add(str(Path.cwd().resolve()))
-                        except Exception:
-                            pass
+                        work_dirs = _work_dir_match_keys(Path.cwd())
                         try:
                             logs = sorted(
                                 (p for p in root.glob("**/*.jsonl") if p.is_file()),
@@ -1015,7 +1149,7 @@ def cmd_restore(args):
                                 continue
                             payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
                             cwd = payload.get("cwd")
-                            if isinstance(cwd, str) and cwd in work_dirs:
+                            if isinstance(cwd, str) and cwd.strip() and _normalize_path_for_match(cwd) in work_dirs:
                                 has_history = True
                                 sid = payload.get("id")
                                 if isinstance(sid, str) and sid:
