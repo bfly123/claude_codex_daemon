@@ -348,6 +348,11 @@ class GeminiLogReader:
                     continue
 
                 if current_count > prev_count:
+                    # Find the LAST gemini message with content (not the first)
+                    # to avoid returning intermediate status messages
+                    last_gemini_content = None
+                    last_gemini_id = None
+                    last_gemini_hash = None
                     for msg in messages[prev_count:]:
                         if msg.get("type") == "gemini":
                             content = msg.get("content", "").strip()
@@ -356,16 +361,20 @@ class GeminiLogReader:
                                 msg_id = msg.get("id")
                                 if msg_id == prev_last_gemini_id and content_hash == prev_last_gemini_hash:
                                     continue
-                                new_state = {
-                                    "session_path": session,
-                                    "msg_count": current_count,
-                                    "mtime": current_mtime,
-                                    "mtime_ns": current_mtime_ns,
-                                    "size": current_size,
-                                    "last_gemini_id": msg_id,
-                                    "last_gemini_hash": content_hash,
-                                }
-                                return content, new_state
+                                last_gemini_content = content
+                                last_gemini_id = msg_id
+                                last_gemini_hash = content_hash
+                    if last_gemini_content:
+                        new_state = {
+                            "session_path": session,
+                            "msg_count": current_count,
+                            "mtime": current_mtime,
+                            "mtime_ns": current_mtime_ns,
+                            "size": current_size,
+                            "last_gemini_id": last_gemini_id,
+                            "last_gemini_hash": last_gemini_hash,
+                        }
+                        return last_gemini_content, new_state
                 else:
                     # Some versions write empty gemini message first, then update content in-place.
                     last = self._extract_last_gemini(data)
