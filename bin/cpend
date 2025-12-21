@@ -14,6 +14,7 @@ from compat import setup_windows_encoding
 setup_windows_encoding()
 
 from i18n import t
+from session_utils import safe_write_session
 
 try:
     from codex_comm import CodexCommunicator
@@ -43,9 +44,10 @@ def _load_pending_state() -> dict:
     if not session_file.exists():
         return {}
     try:
-        with session_file.open("r", encoding="utf-8") as f:
+        with session_file.open("r", encoding="utf-8-sig") as f:
             data = json.load(f)
-        return data.get("pending_state", {})
+        pending = data.get("pending_state", {})
+        return pending if isinstance(pending, dict) else {}
     except Exception:
         return {}
 
@@ -56,12 +58,11 @@ def _clear_pending_state() -> None:
     if not session_file.exists():
         return
     try:
-        with session_file.open("r", encoding="utf-8") as f:
+        with session_file.open("r", encoding="utf-8-sig") as f:
             data = json.load(f)
         if "pending_state" in data:
             del data["pending_state"]
-            with session_file.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            safe_write_session(session_file, json.dumps(data, ensure_ascii=False, indent=2))
     except Exception:
         pass
 
@@ -79,15 +80,24 @@ def main() -> int:
 
         pending = _load_pending_state()
         if pending and pending.get("log_path"):
-            state = {
-                "log_path": Path(pending["log_path"]),
-                "offset": pending.get("offset", 0),
-            }
-            message, _ = comm.log_reader.try_get_message(state)
-            if message:
-                _clear_pending_state()
-                print(message)
-                return 0
+            try:
+                log_path = Path(str(pending.get("log_path"))).expanduser()
+            except Exception:
+                log_path = None
+
+            # Avoid falling back to "global latest" if the pending log path is missing,
+            # otherwise cpend may display an unrelated reply from another project.
+            if log_path and log_path.exists():
+                try:
+                    offset = int(pending.get("offset", 0) or 0)
+                except Exception:
+                    offset = 0
+                state = {"log_path": str(log_path), "offset": offset}
+                message, _ = comm.log_reader.try_get_message(state)
+                if message:
+                    _clear_pending_state()
+                    print(message)
+                    return 0
 
         output = comm.consume_pending(display=False)
         if output:

@@ -350,7 +350,7 @@ class CodexCommunicator:
             return None
 
         try:
-            with open(project_session, "r", encoding="utf-8") as f:
+            with open(project_session, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
 
             if not isinstance(data, dict):
@@ -573,7 +573,7 @@ class CodexCommunicator:
         if not project_file.exists():
             return
         try:
-            with project_file.open("r", encoding="utf-8") as handle:
+            with project_file.open("r", encoding="utf-8-sig") as handle:
                 data = json.load(handle)
         except Exception:
             return

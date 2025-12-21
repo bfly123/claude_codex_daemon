@@ -34,7 +34,7 @@ def main(argv: list[str]) -> int:
         if not session_file.exists():
             return
         try:
-            with session_file.open("r", encoding="utf-8") as handle:
+            with session_file.open("r", encoding="utf-8-sig") as handle:
                 data = json.load(handle)
             data["pending_state"] = {
                 "log_path": str(state.get("log_path")) if state.get("log_path") else None,
