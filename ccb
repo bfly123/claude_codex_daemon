@@ -1260,6 +1260,47 @@ def cmd_update(args):
     import tarfile
     import tempfile
 
+    def _get_version_info(dir_path: Path) -> dict:
+        """Get commit hash, date and version from install directory"""
+        info = {"commit": None, "date": None, "version": None}
+        if not shutil.which("git") or not (dir_path / ".git").exists():
+            return info
+        # Get commit hash and date
+        result = subprocess.run(
+            ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
+            capture_output=True, text=True, encoding='utf-8', errors='replace'
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split("|")
+            if len(parts) >= 2:
+                info["commit"] = parts[0]
+                info["date"] = parts[1].split()[0]  # YYYY-MM-DD
+        # Get version from ccb file
+        ccb_file = dir_path / "ccb"
+        if ccb_file.exists():
+            try:
+                content = ccb_file.read_text(encoding='utf-8', errors='replace')
+                for line in content.split('\n')[:50]:
+                    if line.startswith('VERSION'):
+                        # VERSION = "2.2"
+                        version = line.split('=')[1].strip().strip('"').strip("'")
+                        info["version"] = version
+                        break
+            except Exception:
+                pass
+        return info
+
+    def _format_version_info(info: dict) -> str:
+        """Format version info for display"""
+        parts = []
+        if info.get("version"):
+            parts.append(f"v{info['version']}")
+        if info.get("commit"):
+            parts.append(info["commit"])
+        if info.get("date"):
+            parts.append(info["date"])
+        return " ".join(parts) if parts else "unknown"
+
     # Prefer the directory where this script resides (installed copy), then fall back to env/default.
     script_root = Path(__file__).resolve().parent
     default_install_dir = Path.home() / ".local/share/codex-dual"
@@ -1267,6 +1308,9 @@ def cmd_update(args):
     if (script_root / "install.sh").exists():
         install_dir = script_root
     repo_url = "https://github.com/bfly123/claude_code_bridge"
+
+    # Get current version info before update
+    old_info = _get_version_info(install_dir)
 
     print("🔄 Checking for updates...")
 
@@ -1281,7 +1325,14 @@ def cmd_update(args):
             print(result.stdout.strip() if result.stdout.strip() else "Already up to date.")
             print("🔧 Reinstalling...")
             subprocess.run([str(install_dir / "install.sh"), "install"])
-            print("✅ Update complete!")
+            # Show upgrade info
+            new_info = _get_version_info(install_dir)
+            old_str = _format_version_info(old_info)
+            new_str = _format_version_info(new_info)
+            if old_info.get("commit") != new_info.get("commit"):
+                print(f"✅ Updated: {old_str} → {new_str}")
+            else:
+                print(f"✅ Already up to date: {new_str}")
             return 0
         else:
             print(f"⚠️ Git pull failed: {result.stderr.strip()}")
@@ -1387,8 +1438,14 @@ def cmd_update(args):
         env["CODEX_INSTALL_PREFIX"] = str(install_dir)
         subprocess.run([str(extracted_dir / "install.sh"), "install"], check=True, env=env)
 
-        print("✅ Update complete!")
-        print("💡 Recommended: Install WezTerm as terminal frontend (better split/scroll experience), see README.")
+        # Show upgrade info
+        new_info = _get_version_info(install_dir)
+        old_str = _format_version_info(old_info)
+        new_str = _format_version_info(new_info)
+        if old_info.get("commit") != new_info.get("commit") or old_info.get("version") != new_info.get("version"):
+            print(f"✅ Updated: {old_str} → {new_str}")
+        else:
+            print(f"✅ Already up to date: {new_str}")
         return 0
 
     except Exception as e:
