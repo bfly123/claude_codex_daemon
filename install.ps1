@@ -1,10 +1,22 @@
-param(
+﻿param(
   [Parameter(Position = 0)]
   [ValidateSet("install", "uninstall", "help")]
   [string]$Command = "help",
   [string]$InstallPrefix = "$env:LOCALAPPDATA\codex-dual",
   [switch]$Yes
 )
+
+# --- UTF-8 / BOM compatibility (Windows PowerShell 5.1) ---
+# Keep this near the top so Chinese/emoji output is rendered correctly.
+try {
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+} catch {
+  $utf8NoBom = [System.Text.Encoding]::UTF8
+}
+try { $OutputEncoding = $utf8NoBom } catch {}
+try { [Console]::OutputEncoding = $utf8NoBom } catch {}
+try { [Console]::InputEncoding = $utf8NoBom } catch {}
+try { chcp 65001 | Out-Null } catch {}
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
