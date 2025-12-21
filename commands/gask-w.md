@@ -3,25 +3,21 @@ Forward commands to Gemini session and wait for reply via `gask-w` command (supp
 Execution:
 1. Run `Bash(gask-w "<content>", run_in_background=true)` to start background task
 2. Tell user the task_id and that Gemini is processing
-3. STOP immediately and wait for user input (do NOT call TaskOutput)
+3. Wait for bash-notification (task completed)
+4. When notification arrives, immediately `cat` the output file to show result
 
 Parameters:
 - `<content>` required, will be forwarded to Gemini session
 
 Workflow:
 1. Start gask-w in background -> get task_id
-2. Inform user: "Gemini processing in background (task: xxx)"
-3. STOP and continue conversation - do NOT block waiting
-
-When user wants result:
-- User can say "check gemini" or use `/gpend` to view reply
-- Or use `TaskOutput(task_id, block=false)` to check status
+2. Inform user: "Gemini processing (task: xxx)"
+3. When bash-notification arrives -> `cat <output-file>` to show result
 
 Examples:
-- `Bash(gask-w "explain this", run_in_background=true)` -> inform user, STOP
-- User: "check gemini" -> `gpend` or `TaskOutput(task_id)`
+- `Bash(gask-w "explain this", run_in_background=true)`
+- bash-notification arrives -> `cat /tmp/.../tasks/xxx.output`
 
 Hints:
-- Do NOT use `TaskOutput(block=true)` - it blocks conversation
-- Use `/gpend` to view latest reply anytime
 - Use `gask` for fire-and-forget (no wait)
+- Use `/gpend` to view latest reply anytime
