@@ -285,6 +285,36 @@ class GeminiLogReader:
                 current_count = len(messages)
 
                 if unknown_baseline:
+                    # If capture_state couldn't parse the JSON (transient in-place writes), the wait
+                    # loop may see a fully-written reply in the first successful read. If we treat
+                    # that read as a "baseline" we can miss the reply forever.
+                    last_msg = messages[-1] if messages else None
+                    if isinstance(last_msg, dict):
+                        last_type = last_msg.get("type")
+                        last_content = (last_msg.get("content") or "").strip()
+                    else:
+                        last_type = None
+                        last_content = ""
+
+                    # Only fast-path when the file has changed since the baseline stat and the
+                    # latest message is a non-empty Gemini reply.
+                    if (
+                        last_type == "gemini"
+                        and last_content
+                        and (current_mtime_ns > prev_mtime_ns or current_size != prev_size)
+                    ):
+                        msg_id = last_msg.get("id") if isinstance(last_msg, dict) else None
+                        content_hash = hashlib.sha256(last_content.encode("utf-8")).hexdigest()
+                        return last_content, {
+                            "session_path": session,
+                            "msg_count": current_count,
+                            "mtime": current_mtime,
+                            "mtime_ns": current_mtime_ns,
+                            "size": current_size,
+                            "last_gemini_id": msg_id,
+                            "last_gemini_hash": content_hash,
+                        }
+
                     prev_mtime = current_mtime
                     prev_mtime_ns = current_mtime_ns
                     prev_size = current_size

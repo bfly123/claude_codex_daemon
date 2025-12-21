@@ -239,11 +239,10 @@ class CodexLogReader:
                 if latest and latest != log_path:
                     current_path = latest
                     self._preferred_log = latest
-                    # When switching to a new log file, start from EOF to avoid replaying old content.
-                    try:
-                        offset = latest.stat().st_size
-                    except OSError:
-                        offset = 0
+                    # When switching to a new log file (session rotation / new session),
+                    # start from the beginning to avoid missing a reply that was already written
+                    # before we noticed the new file.
+                    offset = 0
                     if not block:
                         return None, {"log_path": current_path, "offset": offset}
                     time.sleep(self._poll_interval)
