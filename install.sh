@@ -661,8 +661,11 @@ install_claude_md_config() {
   local claude_md="$HOME/.claude/CLAUDE.md"
   mkdir -p "$HOME/.claude"
 
-  local ccb_content
-  ccb_content=$(cat << 'AI_RULES'
+  # Use temp file to avoid Bash 3.2 heredoc parsing bug with single quotes
+  local ccb_tmpfile
+  ccb_tmpfile="$(mktemp)"
+  trap 'rm -f "$ccb_tmpfile"' RETURN
+  cat > "$ccb_tmpfile" << 'AI_RULES'
 <!-- CCB_CONFIG_START -->
 ## Codex Collaboration Rules
 Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
@@ -721,7 +724,8 @@ Examples:
 - "view gemini reply" -> gpend
 <!-- CCB_CONFIG_END -->
 AI_RULES
-)
+  local ccb_content
+  ccb_content="$(cat "$ccb_tmpfile")"
 
   if [[ -f "$claude_md" ]]; then
     if grep -q "$CCB_START_MARKER" "$claude_md" 2>/dev/null; then
