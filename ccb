@@ -1255,61 +1255,124 @@ def cmd_restore(args):
     return 0
 
 
+def _get_version_info(dir_path: Path) -> dict:
+    """Get commit hash, date and version from install directory"""
+    info = {"commit": None, "date": None, "version": None}
+    ccb_file = dir_path / "ccb"
+    if ccb_file.exists():
+        try:
+            content = ccb_file.read_text(encoding='utf-8', errors='replace')
+            for line in content.split('\n')[:60]:
+                line = line.strip()
+                if line.startswith('VERSION') and '=' in line:
+                    info["version"] = line.split('=')[1].strip().strip('"').strip("'")
+                elif line.startswith('GIT_COMMIT') and '=' in line:
+                    val = line.split('=')[1].strip().strip('"').strip("'")
+                    if val:
+                        info["commit"] = val
+                elif line.startswith('GIT_DATE') and '=' in line:
+                    val = line.split('=')[1].strip().strip('"').strip("'")
+                    if val:
+                        info["date"] = val
+        except Exception:
+            pass
+    if shutil.which("git") and (dir_path / ".git").exists():
+        result = subprocess.run(
+            ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
+            capture_output=True, text=True, encoding='utf-8', errors='replace'
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split("|")
+            if len(parts) >= 2:
+                info["commit"] = parts[0]
+                info["date"] = parts[1].split()[0]
+    return info
+
+
+def _format_version_info(info: dict) -> str:
+    """Format version info for display"""
+    parts = []
+    if info.get("version"):
+        parts.append(f"v{info['version']}")
+    if info.get("commit"):
+        parts.append(info["commit"])
+    if info.get("date"):
+        parts.append(info["date"])
+    return " ".join(parts) if parts else "unknown"
+
+
+def _get_remote_version_info() -> dict | None:
+    """Get latest version info from GitHub API"""
+    import urllib.request
+    import ssl
+
+    api_url = "https://api.github.com/repos/bfly123/claude_code_bridge/commits/main"
+    try:
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(api_url, headers={"User-Agent": "ccb"})
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            commit = data.get("sha", "")[:7]
+            date_str = data.get("commit", {}).get("committer", {}).get("date", "")
+            date = date_str[:10] if date_str else None
+            return {"commit": commit, "date": date}
+    except Exception:
+        pass
+
+    if shutil.which("curl"):
+        result = subprocess.run(
+            ["curl", "-fsSL", api_url],
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10
+        )
+        if result.returncode == 0:
+            try:
+                data = json.loads(result.stdout)
+                commit = data.get("sha", "")[:7]
+                date_str = data.get("commit", {}).get("committer", {}).get("date", "")
+                date = date_str[:10] if date_str else None
+                return {"commit": commit, "date": date}
+            except Exception:
+                pass
+    return None
+
+
+def cmd_version(args):
+    """Show version info and check for updates"""
+    script_root = Path(__file__).resolve().parent
+    default_install_dir = Path.home() / ".local/share/codex-dual"
+    install_dir = Path(os.environ.get("CODEX_INSTALL_PREFIX") or default_install_dir).expanduser()
+    if (script_root / "install.sh").exists():
+        install_dir = script_root
+
+    local_info = _get_version_info(install_dir)
+    local_str = _format_version_info(local_info)
+
+    print(f"ccb (Claude Code Bridge) {local_str}")
+    print(f"Install path: {install_dir}")
+
+    print("\nChecking for updates...")
+    remote_info = _get_remote_version_info()
+
+    if remote_info is None:
+        print("⚠️  Unable to check for updates (network error)")
+    elif local_info.get("commit") and remote_info.get("commit"):
+        if local_info["commit"] == remote_info["commit"]:
+            print(f"✅ Up to date")
+        else:
+            remote_str = f"{remote_info['commit']} {remote_info.get('date', '')}"
+            print(f"📦 Update available: {remote_str}")
+            print(f"   Run: ccb update")
+    else:
+        print("⚠️  Unable to compare versions")
+
+    return 0
+
+
 def cmd_update(args):
     """Update ccb to latest version"""
-    import shutil
     import urllib.request
     import tarfile
     import tempfile
-
-    def _get_version_info(dir_path: Path) -> dict:
-        """Get commit hash, date and version from install directory"""
-        info = {"commit": None, "date": None, "version": None}
-        # Get version, commit, date from ccb file (works without git)
-        ccb_file = dir_path / "ccb"
-        if ccb_file.exists():
-            try:
-                content = ccb_file.read_text(encoding='utf-8', errors='replace')
-                for line in content.split('\n')[:60]:
-                    line = line.strip()
-                    if line.startswith('VERSION') and '=' in line:
-                        # VERSION = "2.2"
-                        info["version"] = line.split('=')[1].strip().strip('"').strip("'")
-                    elif line.startswith('GIT_COMMIT') and '=' in line:
-                        # GIT_COMMIT = "abc1234"
-                        val = line.split('=')[1].strip().strip('"').strip("'")
-                        if val:
-                            info["commit"] = val
-                    elif line.startswith('GIT_DATE') and '=' in line:
-                        # GIT_DATE = "2025-12-21"
-                        val = line.split('=')[1].strip().strip('"').strip("'")
-                        if val:
-                            info["date"] = val
-            except Exception:
-                pass
-        # Override with live git info if available
-        if shutil.which("git") and (dir_path / ".git").exists():
-            result = subprocess.run(
-                ["git", "-C", str(dir_path), "log", "-1", "--format=%h|%ci"],
-                capture_output=True, text=True, encoding='utf-8', errors='replace'
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                parts = result.stdout.strip().split("|")
-                if len(parts) >= 2:
-                    info["commit"] = parts[0]
-                    info["date"] = parts[1].split()[0]  # YYYY-MM-DD
-        return info
-
-    def _format_version_info(info: dict) -> str:
-        """Format version info for display"""
-        parts = []
-        if info.get("version"):
-            parts.append(f"v{info['version']}")
-        if info.get("commit"):
-            parts.append(info["commit"])
-        if info.get("date"):
-            parts.append(info["date"])
-        return " ".join(parts) if parts else "unknown"
 
     # Prefer the directory where this script resides (installed copy), then fall back to env/default.
     script_root = Path(__file__).resolve().parent
@@ -1491,12 +1554,17 @@ def main():
     restore_parser.add_argument("providers", nargs="*", default=[], help="Backends to restore (codex/gemini)")
 
     # update subcommand
-    update_parser = subparsers.add_parser("update", help="Update to latest version")
+    subparsers.add_parser("update", help="Update to latest version")
+
+    # version subcommand
+    subparsers.add_parser("version", help="Show version and check for updates")
 
     argv = sys.argv[1:]
-    # Backward/shortcut compatibility: allow `ccb -r` to behave like `ccb up -r` (default provider).
+    # Backward/shortcut compatibility
     if argv and argv[0] in {"-r", "--resume", "--restore"}:
         argv = ["up"] + argv
+    elif argv and argv[0] in {"-v", "--version"}:
+        argv = ["version"]
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -1513,6 +1581,8 @@ def main():
         return cmd_restore(args)
     elif args.command == "update":
         return cmd_update(args)
+    elif args.command == "version":
+        return cmd_version(args)
     else:
         parser.print_help()
         return 1
