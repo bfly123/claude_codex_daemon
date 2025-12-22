@@ -454,22 +454,13 @@ class AILauncher:
         """
         Returns (session_id, has_any_history_for_cwd).
         Session id is Codex CLI's UUID used by `codex resume <id>`.
+        Always scans session logs to find the latest session for current cwd,
+        then updates local .codex-session file.
         """
-        # Only trust local project state; deleting local dotfiles should reset resume behavior.
         project_session = Path.cwd() / ".codex-session"
-        if project_session.exists():
-            data = self._read_json_file(project_session)
-            cached = data.get("codex_session_id")
-            if isinstance(cached, str) and cached:
-                recorded_norm = _extract_session_work_dir_norm(data)
-                if recorded_norm:
-                    work_keys = _work_dir_match_keys(Path.cwd())
-                    if not work_keys or recorded_norm in work_keys:
-                        return cached, True
 
-        # Fallback: scan Codex session logs for the latest session bound to this cwd.
-        # This handles cases where `.codex-session` exists but never got updated with `codex_session_id`
-        # (e.g., user closed the backend before sending any message through the bridge).
+        # Always scan Codex session logs for the latest session bound to this cwd.
+        # This ensures we get the latest session even if user did /clear during run.
         root = Path(os.environ.get("CODEX_SESSION_ROOT") or (Path.home() / ".codex" / "sessions")).expanduser()
         if not root.exists():
             return None, False
@@ -506,6 +497,16 @@ class AILauncher:
                 continue
             sid = payload.get("id")
             if isinstance(sid, str) and sid:
+                # Update local .codex-session file with latest session id
+                data = self._read_json_file(project_session) if project_session.exists() else {}
+                work_dir = Path.cwd()
+                data.update({
+                    "codex_session_id": sid,
+                    "work_dir": str(work_dir),
+                    "work_dir_norm": _normalize_path_for_match(str(work_dir)),
+                    "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                self._write_json_file(project_session, data)
                 return sid, True
         return None, False
 
