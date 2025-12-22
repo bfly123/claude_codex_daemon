@@ -928,8 +928,12 @@ exec tmux attach -t "$TMUX_SESSION"
         if self.auto:
             cmd.append("--dangerously-skip-permissions")
         if self.resume:
-            cmd.append("--continue")
-            print(f"🔁 {t('resuming_claude', session_id='')}")
+            _, has_history = self._get_latest_claude_session_id()
+            if has_history:
+                cmd.append("--continue")
+                print(f"🔁 {t('resuming_claude', session_id='')}")
+            else:
+                print(f"ℹ️ {t('no_claude_session')}")
 
         print(f"📋 Session ID: {self.session_id}")
         print(f"📁 Runtime dir: {self.runtime_dir}")
