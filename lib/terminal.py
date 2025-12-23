@@ -207,7 +207,7 @@ class Iterm2Backend(TerminalBackend):
         try:
             result = subprocess.run(
                 [self._bin(), "session", "list", "--json"],
-                capture_output=True, text=True
+                capture_output=True, text=True, encoding='utf-8', errors='replace'
             )
             if result.returncode != 0:
                 return False
@@ -234,7 +234,7 @@ class Iterm2Backend(TerminalBackend):
         if parent_pane:
             args.extend(["--session", parent_pane])
 
-        result = subprocess.run(args, capture_output=True, text=True, check=True)
+        result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
         # it2 output format: "Created new pane: <session_id>"
         output = result.stdout.strip()
         if ":" in output:
@@ -322,7 +322,7 @@ class WeztermBackend(TerminalBackend):
 
     def is_alive(self, pane_id: str) -> bool:
         try:
-            result = subprocess.run([*self._cli_base_args(), "list", "--format", "json"], capture_output=True, text=True)
+            result = subprocess.run([*self._cli_base_args(), "list", "--format", "json"], capture_output=True, text=True, encoding='utf-8', errors='replace')
             if result.returncode != 0:
                 return False
             panes = json.loads(result.stdout)
@@ -377,7 +377,7 @@ class WeztermBackend(TerminalBackend):
             shell, flag = _default_shell()
             args.extend(["--", shell, flag, cmd])
         try:
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"WezTerm split-pane failed:\nCommand: {' '.join(args)}\nStderr: {e.stderr}") from e
