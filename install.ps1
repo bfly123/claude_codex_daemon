@@ -21,6 +21,22 @@ try { chcp 65001 | Out-Null } catch {}
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Constants
+$script:CCB_START_MARKER = "<!-- CCB_CONFIG_START -->"
+$script:CCB_END_MARKER = "<!-- CCB_CONFIG_END -->"
+
+$script:SCRIPTS_TO_LINK = @("ccb", "cask", "cask-w", "cpend", "cping", "gask", "gask-w", "gpend", "gping")
+
+$script:CLAUDE_MARKDOWN = @(
+  "cask.md", "cask-w.md", "cpend.md", "cping.md",
+  "gask.md", "gask-w.md", "gpend.md", "gping.md"
+)
+
+$script:LEGACY_SCRIPTS = @(
+  "cast", "cast-w", "codex-ask", "codex-pending", "codex-ping",
+  "claude-codex-dual", "claude_codex", "claude_ai", "claude_bridge"
+)
+
 # i18n support
 function Get-CCBLang {
   $lang = $env:CCB_LANG
@@ -247,13 +263,12 @@ function Install-ClaudeConfig {
   }
 
   $codexRules = @"
-
+<!-- CCB_CONFIG_START -->
 ## Codex Collaboration Rules
-Codex is another AI assistant running via tmux or WezTerm. When user intent involves asking/consulting/collaborating with Codex:
+Codex is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
-- If the user message starts with any of: ``@codex``, ``codex:``, ``ask codex``, ``let codex``, ``/cask`` then immediately run:
-  - ``Bash(cask "<message>", run_in_background=true)``, tell user task_id, then END your turn
+- If the user message starts with any of: ``@codex``, ``codex:``, ``ask codex``, ``let codex``, ``/cask`` then immediately run based on complexity.
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -261,20 +276,28 @@ Trigger conditions (any match):
 - User wants codex to do something, give advice, or help review
 - User asks about codex's status or previous reply
 
-Command selection:
-- Default ask/collaborate -> ``Bash(cask "<question>", run_in_background=true)``
-  - Tell user "Codex processing (task: xxx)" then END your turn immediately
+Command selection (choose based on task complexity):
+- Simple questions (quick lookup, short answer, simple check) -> ``cask-w "<question>"``
+  - Examples: "what's the syntax for X", "is Y correct", "quick check on Z"
+  - Blocks until reply, then continue
+- Complex tasks (review, analysis, multi-step, code generation) -> ``Bash(cask "<question>", run_in_background=true)``
+  - Examples: "review this code", "analyze the architecture", "help design X"
+  - Tell user "Codex processing (task: xxx)" then END your turn
   - When bash-notification arrives, show the task output
-- Foreground ask (blocking) -> ``cask-w "<question>"``
-- Check connectivity: ``cping``
-- View previous reply: ``cpend`` / ``cpend N``
+- Check connectivity -> ``cping``
+- View previous reply -> ``cpend`` / ``cpend N``
+
+Examples:
+- "codex: what's the git command for X" -> ``cask-w "..."`` (simple, wait for reply)
+- "ask codex to review this PR" -> ``Bash(cask "...", run_in_background=true)``, END turn (complex)
+- "is codex alive" -> cping
+- "view codex reply" -> cpend
 
 ## Gemini Collaboration Rules
-Gemini is another AI assistant running via tmux or WezTerm. When user intent involves asking/consulting/collaborating with Gemini:
+Gemini is another AI assistant running in a separate terminal session (WezTerm, iTerm2 or tmux). When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
-- If the user message starts with any of: ``@gemini``, ``gemini:``, ``ask gemini``, ``let gemini``, ``/gask`` then immediately run:
-  - ``Bash(gask "<message>", run_in_background=true)``, tell user task_id, then END your turn
+- If the user message starts with any of: ``@gemini``, ``gemini:``, ``ask gemini``, ``let gemini``, ``/gask`` then immediately run based on complexity.
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -282,13 +305,23 @@ Trigger conditions (any match):
 - User wants gemini to do something, give advice, or help review
 - User asks about gemini's status or previous reply
 
-Command selection:
-- Default ask/collaborate -> ``Bash(gask "<question>", run_in_background=true)``
-  - Tell user "Gemini processing (task: xxx)" then END your turn immediately
+Command selection (choose based on task complexity):
+- Simple questions (quick lookup, short answer, simple check) -> ``gask-w "<question>"``
+  - Examples: "what's the syntax for X", "is Y correct", "quick check on Z"
+  - Blocks until reply, then continue
+- Complex tasks (review, analysis, multi-step, code generation) -> ``Bash(gask "<question>", run_in_background=true)``
+  - Examples: "review this code", "analyze the architecture", "help design X"
+  - Tell user "Gemini processing (task: xxx)" then END your turn
   - When bash-notification arrives, show the task output
-- Foreground ask (blocking) -> ``gask-w "<question>"``
-- Check connectivity: ``gping``
-- View previous reply: ``gpend`` / ``gpend N``
+- Check connectivity -> ``gping``
+- View previous reply -> ``gpend`` / ``gpend N``
+
+Examples:
+- "gemini: what's the best practice for X" -> ``gask-w "..."`` (simple, wait for reply)
+- "ask gemini to review this design" -> ``Bash(gask "...", run_in_background=true)``, END turn (complex)
+- "is gemini alive" -> gping
+- "view gemini reply" -> gpend
+<!-- CCB_CONFIG_END -->
 "@
 
   if (Test-Path $claudeMd) {
