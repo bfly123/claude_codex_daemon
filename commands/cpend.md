@@ -1,4 +1,4 @@
-Use `cpend` to fetch latest reply from Codex official logs, suitable for async mode or follow-up queries after timeout.
+Use `cpend` to fetch latest reply from Codex official logs (`~/.codex/sessions/`).
 
 Trigger conditions (any match):
 - User mentions cpend/Cpend
@@ -20,14 +20,13 @@ A: codex reply 2
 ```
 
 Features:
-1. Parses log path recorded in `.codex-session`, locates latest JSONL file for current session
-2. Reads tail messages and returns Codex's most recent output
-3. If no new content, will prompt "No Codex reply yet"
-4. Supports fetching last N conversations with Q&A pairs
+1. Reads Codex official session JSONL logs from `~/.codex/sessions/`
+2. Prints the latest assistant reply (`cpend`) or the last N Q&A pairs (`cpend N`)
+3. If no reply is available, exits with code 2 and prints a message to stderr
 
 Common scenarios:
-- View results after submitting multiple tasks via `cask` async
-- Manually confirm if Codex has responded after `cask-w` timeout exit
+- View results after running `cask` in background
+- Manually confirm if Codex has responded after a background task completes
 - Need to verify if Codex reply matches original question
 - Review recent conversation history with Codex
 

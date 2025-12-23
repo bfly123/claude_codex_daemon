@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-gask-w - Send message to Gemini and wait for reply (pure sync mode)
-Designed to be run with Claude Code's run_in_background=true
+gask-w - Send message to Gemini and wait for reply (foreground sync).
+
+stdout: reply text only (for piping).
+stderr: progress and errors.
 """
 from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-import json
 
 script_dir = Path(__file__).resolve().parent
 lib_dir = script_dir.parent / "lib"
@@ -17,51 +18,52 @@ setup_windows_encoding()
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) <= 1:
-        print("Usage: gask-w <message>", file=sys.stderr)
-        return 1
-
-    message = " ".join(argv[1:]).strip()
-    if not message:
-        print("❌ Message cannot be empty", file=sys.stderr)
-        return 1
-
+    from cli_output import EXIT_ERROR, EXIT_NO_REPLY, EXIT_OK, atomic_write_text
     from gemini_comm import GeminiCommunicator
     from i18n import t
 
-    def save_pending_state(state: dict) -> None:
-        session_file = Path.cwd() / ".gemini-session"
-        if not session_file.exists():
-            return
-        try:
-            with session_file.open("r", encoding="utf-8-sig") as handle:
-                data = json.load(handle)
-            data["pending_state"] = {
-                "session_path": str(state.get("session_path")) if state.get("session_path") else None,
-                "msg_count": int(state.get("msg_count", 0) or 0),
-                "mtime": float(state.get("mtime", 0.0) or 0.0),
-                "mtime_ns": int(state.get("mtime_ns", 0) or 0),
-                "size": int(state.get("size", 0) or 0),
-                "last_gemini_id": state.get("last_gemini_id"),
-                "last_gemini_hash": state.get("last_gemini_hash"),
-            }
-            tmp_file = session_file.with_suffix(".tmp")
-            with tmp_file.open("w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_file, session_file)
-        except Exception:
-            return
+    if len(argv) <= 1:
+        print("Usage: gask-w [--timeout SECONDS] [--output FILE] <message>", file=sys.stderr)
+        return EXIT_ERROR
 
-    # Save to cache
-    cache_dir = Path.home() / ".cache" / "ccb"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    reply_file = cache_dir / "gemini_last_reply.txt"
-    # Clear stale cache
-    if reply_file.exists():
+    output_path: Path | None = None
+    timeout: float | None = None
+
+    parts: list[str] = []
+    it = iter(argv[1:])
+    for token in it:
+        if token in ("-h", "--help"):
+            print("Usage: gask-w [--timeout SECONDS] [--output FILE] <message>", file=sys.stderr)
+            return EXIT_OK
+        if token in ("-o", "--output"):
+            try:
+                output_path = Path(next(it)).expanduser()
+            except StopIteration:
+                print("❌ --output requires a file path", file=sys.stderr)
+                return EXIT_ERROR
+            continue
+        if token in ("-t", "--timeout"):
+            try:
+                timeout = float(next(it))
+            except StopIteration:
+                print("❌ --timeout requires a number", file=sys.stderr)
+                return EXIT_ERROR
+            except ValueError:
+                print("❌ --timeout must be a number", file=sys.stderr)
+                return EXIT_ERROR
+            continue
+        parts.append(token)
+
+    message = " ".join(parts).strip()
+    if not message:
+        print("❌ Message cannot be empty", file=sys.stderr)
+        return EXIT_ERROR
+
+    if timeout is None:
         try:
-            reply_file.unlink()
+            timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
         except Exception:
-            pass
+            timeout = 3600.0
 
     try:
         comm = GeminiCommunicator(lazy_init=True)
@@ -70,43 +72,31 @@ def main(argv: list[str]) -> int:
         healthy, status = comm._check_session_health_impl(probe_terminal=False)
         if not healthy:
             print(f"❌ Session error: {status}", file=sys.stderr)
-            return 1
+            return EXIT_ERROR
 
         # Send message
-        print(f"🔔 {t('sending_to', provider='Gemini')}", flush=True)
-        marker, state = comm._send_message(message)
-        comm._remember_gemini_session(state.get("session_path") or comm.log_reader.current_session_path())
+        print(f"🔔 {t('sending_to', provider='Gemini')}", file=sys.stderr, flush=True)
+        _, state = comm._send_message(message)
+        message_reply, _ = comm.log_reader.wait_for_message(state, timeout)
 
-        # Pure sync wait (default 1 hour, configurable via CCB_SYNC_TIMEOUT)
-        sync_timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
-        message_reply, new_state = comm.log_reader.wait_for_message(state, sync_timeout)
-        state = new_state or state
-        comm._remember_gemini_session(state.get("session_path") or comm.log_reader.current_session_path())
+        if not message_reply:
+            print(f"⏰ Timeout after {int(timeout)}s", file=sys.stderr)
+            return EXIT_NO_REPLY
 
-        # Save to cache
-        cache_dir = Path.home() / ".cache" / "ccb"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        reply_file = cache_dir / "gemini_last_reply.txt"
+        if output_path:
+            atomic_write_text(output_path, message_reply + "\n")
 
-        if message_reply:
-            print(f"🤖 {t('reply_from', provider='Gemini')}")
-            print(message_reply)
-            reply_file.write_text(message_reply, encoding="utf-8")
-        else:
-            print(f"⏰ Timeout after {int(sync_timeout)}s")
-            save_pending_state(state)
-        return 0
+        sys.stdout.write(message_reply)
+        if not message_reply.endswith("\n"):
+            sys.stdout.write("\n")
+        return EXIT_OK
 
     except KeyboardInterrupt:
-        try:
-            save_pending_state(locals().get("state", {}) if isinstance(locals().get("state"), dict) else {})
-        except Exception:
-            pass
         print("❌ Interrupted", file=sys.stderr)
         return 130
     except Exception as exc:
         print(f"❌ {exc}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":

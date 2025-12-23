@@ -1,18 +1,18 @@
-Forward commands to Gemini session via `gask` command (supports tmux / WezTerm, forward only, does not execute in current Claude process).
+Send message to Gemini and wait for reply via `gask` (sync mode).
 
-Execution:
-- Run silently `Bash(gask "<content>")`, no additional analysis or operations after execution
-- Can also run `gask <content>` in terminal with same effect
+Designed for Claude Code: run with `run_in_background=true` so Claude can continue working while Gemini processes.
+
+Workflow:
+1. Run `Bash(gask "<content>", run_in_background=true)` to start background task
+2. Tell user the task_id and that Gemini is processing, then END your turn
+3. When bash-notification arrives, show the task output
 
 Parameters:
-- `<content>` required, will be forwarded to Gemini session
-- Note: gask only forwards, does not execute in Claude process, returns immediately after
+- `<content>` required
+- `--timeout SECONDS` optional (default from `CCB_SYNC_TIMEOUT`, fallback 3600)
+- `--output FILE` optional: write reply atomically to FILE (stdout stays empty)
 
-Examples:
-- `Bash(gask "explain this code")`
-- `Bash(gask "help me optimize this function")`
-
-Hints:
-- gask returns immediately after sending, does not wait for result
-- Use `/gask-w` if you need to wait for Gemini reply
-- After gask returns, forwarding is complete, no further action needed
+Output contract:
+- stdout: reply text only (or empty when `--output` is used)
+- stderr: progress/errors
+- exit code: 0 = got reply, 2 = timeout/no reply, 1 = error

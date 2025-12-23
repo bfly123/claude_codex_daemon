@@ -15,47 +15,57 @@ setup_windows_encoding()
 from i18n import t
 
 try:
-    from gemini_comm import GeminiCommunicator
+    from cli_output import EXIT_ERROR, EXIT_NO_REPLY, EXIT_OK
+    from gemini_comm import GeminiLogReader
 except ImportError as exc:
     print(f"Import failed: {exc}")
     sys.exit(1)
 
 
-def _load_cached_reply() -> str | None:
-    """Load cached reply from background gask-w process"""
-    cache_file = Path.home() / ".cache" / "ccb" / "gemini_last_reply.txt"
-    if not cache_file.exists():
-        return None
-    try:
-        content = cache_file.read_text(encoding="utf-8").strip()
-        if content:
-            cache_file.unlink()  # Clear after reading
-            return content
-    except Exception:
-        pass
-    return None
-
-
-def main() -> int:
-    try:
-        # First check cached reply from background gask-w
-        cached = _load_cached_reply()
-        if cached:
-            print(f"🤖 Gemini reply:")
-            print(cached)
-            return 0
-
-        comm = GeminiCommunicator()
-        output = comm.consume_pending(display=False)
-        if output:
-            print(output)
-        else:
-            print(t('no_reply_available', provider='Gemini'))
-        return 0
-    except Exception as exc:
-        print(f"❌ {t('execution_failed', error=exc)}")
+def _parse_n(argv: list[str]) -> int:
+    if len(argv) <= 1:
         return 1
+    if argv[1] in ("-h", "--help"):
+        print("Usage: gpend [N]", file=sys.stderr)
+        raise SystemExit(EXIT_OK)
+    try:
+        n = int(argv[1])
+    except ValueError:
+        print("Usage: gpend [N]", file=sys.stderr)
+        raise SystemExit(EXIT_ERROR)
+    return max(1, n)
+
+
+def main(argv: list[str]) -> int:
+    try:
+        n = _parse_n(argv)
+
+        # GeminiLogReader uses work_dir to find session, no need for explicit path
+        reader = GeminiLogReader()
+
+        if n > 1:
+            conversations = reader.latest_conversations(n)
+            if not conversations:
+                print(t("no_reply_available", provider="Gemini"), file=sys.stderr)
+                return EXIT_NO_REPLY
+            for i, (question, reply) in enumerate(conversations):
+                if question:
+                    print(f"Q: {question}")
+                print(f"A: {reply}")
+                if i < len(conversations) - 1:
+                    print("---")
+            return EXIT_OK
+
+        message = reader.latest_message()
+        if not message:
+            print(t("no_reply_available", provider="Gemini"), file=sys.stderr)
+            return EXIT_NO_REPLY
+        print(message)
+        return EXIT_OK
+    except Exception as exc:
+        print(f"❌ {t('execution_failed', error=exc)}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

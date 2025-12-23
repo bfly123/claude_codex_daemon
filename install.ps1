@@ -252,8 +252,8 @@ function Install-ClaudeConfig {
 Codex is another AI assistant running via tmux or WezTerm. When user intent involves asking/consulting/collaborating with Codex:
 
 Fast path (minimize latency):
-- If the user message starts with any of: ``@codex``, ``codex:``, ``codex：`` then immediately run:
-  - ``cask-w "<rest of the message after the prefix>"`` (sync, waits for reply)
+- If the user message starts with any of: ``@codex``, ``codex:``, ``ask codex``, ``let codex``, ``/cask`` then immediately run:
+  - ``Bash(cask "<message>", run_in_background=true)``, tell user task_id, then END your turn
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -262,17 +262,19 @@ Trigger conditions (any match):
 - User asks about codex's status or previous reply
 
 Command selection:
-- Default ask/collaborate: ``cask-w "<question>"`` (sync, waits for reply)
-- Send without waiting: ``cask "<question>"`` (async, returns immediately)
+- Default ask/collaborate -> ``Bash(cask "<question>", run_in_background=true)``
+  - Tell user "Codex processing (task: xxx)" then END your turn immediately
+  - When bash-notification arrives, show the task output
+- Foreground ask (blocking) -> ``cask-w "<question>"``
 - Check connectivity: ``cping``
-- View previous reply: ``cpend``
+- View previous reply: ``cpend`` / ``cpend N``
 
 ## Gemini Collaboration Rules
 Gemini is another AI assistant running via tmux or WezTerm. When user intent involves asking/consulting/collaborating with Gemini:
 
 Fast path (minimize latency):
-- If the user message starts with any of: ``@gemini``, ``gemini:``, ``gemini：`` then immediately run:
-  - ``gask-w "<rest of the message after the prefix>"`` (sync, waits for reply)
+- If the user message starts with any of: ``@gemini``, ``gemini:``, ``ask gemini``, ``let gemini``, ``/gask`` then immediately run:
+  - ``Bash(gask "<message>", run_in_background=true)``, tell user task_id, then END your turn
 - If user message is only the prefix (no content), ask a 1-line clarification for what to send.
 
 Trigger conditions (any match):
@@ -281,10 +283,12 @@ Trigger conditions (any match):
 - User asks about gemini's status or previous reply
 
 Command selection:
-- Default ask/collaborate: ``gask-w "<question>"`` (sync, waits for reply)
-- Send without waiting: ``gask "<question>"`` (async, returns immediately)
+- Default ask/collaborate -> ``Bash(gask "<question>", run_in_background=true)``
+  - Tell user "Gemini processing (task: xxx)" then END your turn immediately
+  - When bash-notification arrives, show the task output
+- Foreground ask (blocking) -> ``gask-w "<question>"``
 - Check connectivity: ``gping``
-- View previous reply: ``gpend``
+- View previous reply: ``gpend`` / ``gpend N``
 "@
 
   if (Test-Path $claudeMd) {

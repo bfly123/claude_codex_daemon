@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-cask - Forward message to Codex session
+cask - Send message to Codex and wait for reply (sync).
+
+Designed to be used with Claude Code's run_in_background=true.
+If --output is provided, the reply is written atomically to that file and stdout stays empty.
 """
 from __future__ import annotations
-import json
 import os
 import sys
 from pathlib import Path
@@ -15,44 +17,47 @@ sys.path.insert(0, str(lib_dir))
 from compat import setup_windows_encoding
 setup_windows_encoding()
 
-from terminal import get_backend_for_session, get_pane_id_from_session
-
-
 def _usage() -> None:
-    print("Usage: cask <message>", file=sys.stderr)
+    print("Usage: cask [--timeout SECONDS] [--output FILE] <message>", file=sys.stderr)
 
 
-def _load_session() -> Optional[dict]:
-    env_session = os.environ.get("CODEX_TMUX_SESSION")
-    env_pane = os.environ.get("CODEX_WEZTERM_PANE")
-    if env_session or env_pane:
-        return {
-            "terminal": "wezterm" if env_pane else "tmux",
-            "pane_id": env_pane,
-            "tmux_session": env_session,
-            "runtime_dir": os.environ.get("CODEX_RUNTIME_DIR"),
-        }
+def _parse_args(argv: list[str]) -> Tuple[Optional[Path], float, str, bool]:
+    output: Optional[Path] = None
+    timeout: Optional[float] = None
+    quiet = False
+    parts: list[str] = []
 
-    session_file = Path.cwd() / ".codex-session"
-    if not session_file.exists():
-        return None
-    try:
-        data = json.loads(session_file.read_text(encoding="utf-8"))
-        if not data.get("active"):
-            return None
-        return data
-    except Exception:
-        return None
+    it = iter(argv[1:])
+    for token in it:
+        if token in ("-h", "--help"):
+            _usage()
+            raise SystemExit(0)
+        if token in ("-q", "--quiet"):
+            quiet = True
+            continue
+        if token in ("-o", "--output"):
+            try:
+                output = Path(next(it)).expanduser()
+            except StopIteration:
+                raise ValueError("--output requires a file path")
+            continue
+        if token in ("-t", "--timeout"):
+            try:
+                timeout = float(next(it))
+            except StopIteration:
+                raise ValueError("--timeout requires a number")
+            except ValueError as exc:
+                raise ValueError(f"Invalid --timeout: {exc}")
+            continue
+        parts.append(token)
 
-
-def _resolve_session() -> Tuple[dict, str]:
-    data = _load_session()
-    if not data:
-        raise RuntimeError("❌ Codex session not found, please run ccb up codex first")
-    pane_id = get_pane_id_from_session(data)
-    if not pane_id:
-        raise RuntimeError("❌ Session config invalid")
-    return data, pane_id
+    message = " ".join(parts).strip()
+    if timeout is None:
+        try:
+            timeout = float(os.environ.get("CCB_SYNC_TIMEOUT", "3600.0"))
+        except Exception:
+            timeout = 3600.0
+    return output, timeout, message, quiet
 
 
 def main(argv: list[str]) -> int:
@@ -60,22 +65,38 @@ def main(argv: list[str]) -> int:
         _usage()
         return 1
 
-    raw_command = " ".join(argv[1:]).strip()
-    if not raw_command:
-        _usage()
-        return 1
-
     try:
-        data, pane_id = _resolve_session()
-        backend = get_backend_for_session(data)
-        if not backend:
-            raise RuntimeError("❌ Cannot initialize terminal backend")
-        if not backend.is_alive(pane_id):
-            terminal = data.get("terminal", "tmux")
-            raise RuntimeError(f"❌ {terminal} session not found: {pane_id}\nHint: Please confirm ccb is running")
-        backend.send_text(pane_id, raw_command)
-        print(f"✅ Sent to Codex ({pane_id})")
-        return 0
+        from cli_output import EXIT_ERROR, EXIT_NO_REPLY, EXIT_OK, atomic_write_text
+        from codex_comm import CodexCommunicator
+
+        output_path, timeout, message, quiet = _parse_args(argv)
+        if not message:
+            _usage()
+            return EXIT_ERROR
+
+        comm = CodexCommunicator(lazy_init=True)
+
+        healthy, status = comm._check_session_health_impl(probe_terminal=False)
+        if not healthy:
+            raise RuntimeError(f"❌ Session error: {status}")
+
+        _, state = comm._send_message(message)
+        reply, _ = comm.log_reader.wait_for_message(state, timeout)
+        if not reply:
+            if not quiet:
+                print(f"⏰ Timeout after {int(timeout)}s", file=sys.stderr)
+            return EXIT_NO_REPLY
+
+        if output_path:
+            atomic_write_text(output_path, reply + "\n")
+            return EXIT_OK
+
+        sys.stdout.write(reply)
+        if not reply.endswith("\n"):
+            sys.stdout.write("\n")
+        return EXIT_OK
+    except KeyboardInterrupt:
+        return 130
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1

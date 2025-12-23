@@ -1,18 +1,18 @@
-Forward commands to Codex session via `cask` command (supports tmux / WezTerm, forward only, does not execute in current Claude process).
+Send message to Codex and wait for reply via `cask` (sync mode).
 
-Execution:
-- Run silently `Bash(cask "<content>")`, no additional analysis or operations after execution
-- Can also run `cask <content>` in terminal with same effect
+Designed for Claude Code: run with `run_in_background=true` so Claude can continue working while Codex processes.
+
+Workflow:
+1. Run `Bash(cask "<content>", run_in_background=true)` to start background task
+2. Tell user the task_id and that Codex is processing, then END your turn
+3. When bash-notification arrives, show the task output
 
 Parameters:
-- `<content>` required, will be forwarded to Codex session (e.g. `pwd`, `ls` commands)
-- Note: cask only forwards, does not execute in Claude process, returns immediately after
+- `<content>` required
+- `--timeout SECONDS` optional (default from `CCB_SYNC_TIMEOUT`, fallback 3600)
+- `--output FILE` optional: write reply atomically to FILE (stdout stays empty)
 
-Examples:
-- `Bash(cask "pwd")`
-- `Bash(cask "ls -la")`
-
-Hints:
-- cask returns immediately after sending, does not wait for result
-- Use `/cask-w` if you need to wait for Codex reply
-- After cask returns, forwarding is complete, no further action needed
+Output contract:
+- stdout: reply text only (or empty when `--output` is used)
+- stderr: progress/errors
+- exit code: 0 = got reply, 2 = timeout/no reply, 1 = error

@@ -1,23 +1,18 @@
-Forward commands to Codex session and wait for reply via `cask-w` command (supports tmux / WezTerm).
+Send message to Codex and wait for reply via `cask-w` (foreground sync).
 
 Execution:
-1. Run `Bash(cask-w "<content>", run_in_background=true)` to start background task
-2. Tell user the task_id and that Codex is processing
-3. Wait for bash-notification (task completed)
-4. When notification arrives, immediately `cat` the output file to show result
+- Run `Bash(cask-w "<content>")` and wait until it returns
 
 Parameters:
-- `<content>` required, will be forwarded to Codex session
+- `<content>` required
+- `--timeout SECONDS` optional (default from `CCB_SYNC_TIMEOUT`, fallback 3600)
+- `--output FILE` optional: write reply atomically to FILE (stdout still prints the reply)
 
-Workflow:
-1. Start cask-w in background -> get task_id
-2. Inform user: "Codex processing (task: xxx)"
-3. When bash-notification arrives -> `cat <output-file>` to show result
-
-Examples:
-- `Bash(cask-w "analyze code", run_in_background=true)`
-- bash-notification arrives -> `cat /tmp/.../tasks/xxx.output`
+Output contract:
+- stdout: reply text only
+- stderr: progress/errors
+- exit code: 0 = got reply, 2 = timeout/no reply, 1 = error
 
 Hints:
-- Use `cask` for fire-and-forget (no wait)
-- Use `/cpend` to view latest reply anytime
+- Use `cask` with `run_in_background=true` for background waiting
+- Use `/cpend` to view the latest reply from official logs

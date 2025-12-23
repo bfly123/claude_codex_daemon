@@ -123,7 +123,8 @@ class CodexLogReader:
 
     def latest_message(self) -> Optional[str]:
         """Get the latest reply directly"""
-        log_path = self._latest_log()
+        # Use preferred log if set, otherwise scan for latest
+        log_path = self._preferred_log if self._preferred_log and self._preferred_log.exists() else self._latest_log()
         if not log_path or not log_path.exists():
             return None
         try:
@@ -294,28 +295,24 @@ class CodexLogReader:
 
     def latest_conversations(self, n: int = 1) -> List[Tuple[str, str]]:
         """Get the latest n conversations (question, reply) pairs"""
-        log_path = self._latest_log()
+        # Use preferred log if set, otherwise scan for latest
+        log_path = self._preferred_log if self._preferred_log and self._preferred_log.exists() else self._latest_log()
         if not log_path or not log_path.exists():
             return []
 
+        # Read entire file to find all message entries
         try:
-            with log_path.open("rb") as handle:
-                handle.seek(0, os.SEEK_END)
-                buffer = bytearray()
-                position = handle.tell()
-                while position > 0 and len(buffer) < 1024 * 1024:
-                    read_size = min(8192, position)
-                    position -= read_size
-                    handle.seek(position)
-                    buffer = handle.read(read_size) + buffer
-                    if buffer.count(b"\n") >= n * 20:
-                        break
-                lines = buffer.decode("utf-8", errors="ignore").splitlines()
+            with log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                lines = handle.readlines()
         except OSError:
             return []
 
         questions: List[str] = []
         replies: List[str] = []
+
+        # Collect Q&A pairs in order
+        conversations: List[Tuple[str, str]] = []
+        pending_question: Optional[str] = None
 
         for line in lines:
             line = line.strip()
@@ -328,24 +325,14 @@ class CodexLogReader:
 
             user_msg = self._extract_user_message(entry)
             if user_msg:
-                questions.append(user_msg)
+                pending_question = user_msg
 
             ai_msg = self._extract_message(entry)
-            if ai_msg:
-                replies.append(ai_msg)
+            if ai_msg and pending_question is not None:
+                conversations.append((pending_question, ai_msg))
+                pending_question = None
 
-        conversations: List[Tuple[str, str]] = []
-        q_idx = len(questions) - 1
-        r_idx = len(replies) - 1
-
-        while len(conversations) < n and r_idx >= 0:
-            reply = replies[r_idx]
-            question = questions[q_idx] if q_idx >= 0 else ""
-            conversations.append((question, reply))
-            q_idx -= 1
-            r_idx -= 1
-
-        conversations.reverse()
+        # Return last n conversations
         return conversations[-n:] if len(conversations) > n else conversations
 
 

@@ -1,4 +1,4 @@
-Use `gpend` to fetch latest reply from Gemini session, suitable for async mode or follow-up queries after timeout.
+Use `gpend` to fetch latest reply from Gemini logs (`~/.gemini/tmp/.../chats/session-*.json`).
 
 Trigger conditions (any match):
 - User mentions gpend/Gpend
@@ -19,10 +19,15 @@ Q: user question 2
 A: gemini reply 2
 ```
 
+Output contract:
+- stdout: reply text (or Q&A pairs)
+- stderr: message when no reply / errors
+- exit code: 0 = got reply, 2 = no reply available, 1 = error
+
 Common scenarios:
-- View reply after gask async send
-- Continue getting reply after gask-w timeout
+- View reply after running `gask` in background
+- Continue getting reply after a foreground/background wait returns empty/timeout
 - Review recent conversation history with Gemini
 
 Hints:
-- If command returns empty, first confirm Gemini session is still running (use `/gping` to check)
+- If command exits with code 2, first confirm Gemini session is still running (use `/gping` to check)

@@ -161,23 +161,48 @@ ccb update              # Update to latest version
 
 > Most users don't need these—Claude auto-detects collaboration intent.
 
-**Codex:**
+### Codex Commands
 
 | Command | Description |
 |---------|-------------|
-| `cask-w <msg>` | Sync: wait for reply |
-| `cask <msg>` | Async: fire-and-forget |
-| `cpend` | Show latest reply |
+| `cask <msg>` | Sync wait (background-friendly) |
+| `cask-w <msg>` | Sync wait (foreground blocking) |
+| `cpend [N]` | Show latest N replies from official logs |
 | `cping` | Connectivity check |
 
-**Gemini:**
+**cask** - Background-friendly sync wait (designed for `run_in_background=true`)
+```bash
+# Claude Code usage:
+Bash(cask "review this code", run_in_background=true)
+# Wait for bash-notification, then read task output
+
+# Terminal usage:
+cask "what is the bug?" --timeout 60
+cask "analyze" --output /tmp/reply.txt
+```
+
+**cask-w** - Foreground blocking wait (for terminal/human use)
+```bash
+cask-w "explain this function"
+# Blocks until reply, prints to stdout
+```
+
+**cpend** - Pure log reader (decoupled from cask)
+```bash
+cpend      # Latest reply
+cpend 3    # Latest 3 Q&A pairs
+```
+
+### Gemini Commands
 
 | Command | Description |
 |---------|-------------|
-| `gask-w <msg>` | Sync: wait for reply |
-| `gask <msg>` | Async: fire-and-forget |
-| `gpend` | Show latest reply |
+| `gask <msg>` | Sync wait (background-friendly) |
+| `gask-w <msg>` | Sync wait (foreground blocking) |
+| `gpend [N]` | Show latest N replies from official logs |
 | `gping` | Connectivity check |
+
+Usage is identical to Codex commands above.
 
 ## Requirements
 
@@ -287,7 +312,7 @@ cd claude_code_bridge
 
 ### BackendEnv（Windows/WSL 必看）
 
-`ccb/cask-w` 必须和 `codex/gemini` 在同一环境运行，否则可能出现：
+`ccb/cask` / `ccb/gask` 必须和 `codex/gemini` 在同一环境运行，否则可能出现：
 - `exit code 127`（找不到命令）
 - `cpend/gpend` 读不到回复（会话目录不同）
 
@@ -351,23 +376,48 @@ ccb update              # 更新到最新版本
 
 > 普通用户无需使用这些命令——Claude 会自动检测协作意图。
 
-**Codex:**
+### Codex 命令
 
 | 命令 | 说明 |
 |------|------|
-| `cask-w <消息>` | 同步：等待回复 |
-| `cask <消息>` | 异步：发送即返回 |
-| `cpend` | 查看最新回复 |
+| `cask <消息>` | 同步等待（适合后台任务） |
+| `cask-w <消息>` | 同步等待（前台阻塞） |
+| `cpend [N]` | 从官方日志读取最近 N 条回复 |
 | `cping` | 测试连通性 |
 
-**Gemini:**
+**cask** - 后台友好的同步等待（配合 `run_in_background=true` 使用）
+```bash
+# Claude Code 中使用：
+Bash(cask "review this code", run_in_background=true)
+# 等待 bash-notification，然后读取 task output
+
+# 终端中使用：
+cask "这个bug是什么？" --timeout 60
+cask "分析代码" --output /tmp/reply.txt
+```
+
+**cask-w** - 前台阻塞等待（适合终端/人工使用）
+```bash
+cask-w "解释这个函数"
+# 阻塞直到收到回复，输出到 stdout
+```
+
+**cpend** - 纯日志读取器（与 cask 完全解耦）
+```bash
+cpend      # 最新一条回复
+cpend 3    # 最近 3 组问答
+```
+
+### Gemini 命令
 
 | 命令 | 说明 |
 |------|------|
-| `gask-w <消息>` | 同步：等待回复 |
-| `gask <消息>` | 异步：发送即返回 |
-| `gpend` | 查看最新回复 |
+| `gask <消息>` | 同步等待（适合后台任务） |
+| `gask-w <消息>` | 同步等待（前台阻塞） |
+| `gpend [N]` | 从官方日志读取最近 N 条回复 |
 | `gping` | 测试连通性 |
+
+用法与 Codex 命令相同。
 
 ## 依赖
 
