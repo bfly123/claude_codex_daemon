@@ -112,6 +112,12 @@ Once started, collaborate naturally. Claude will detect when to delegate tasks.
 - **Architecture:** *"Let Codex design the module structure first."*
 - **Info Exchange:** *"Fetch 3 rounds of Codex conversation and summarize."*
 
+### 🎴 Fun & Creative: AI Poker Night!
+
+> *"Let Claude, Codex and Gemini play Dou Di Zhu (斗地主)! You deal the cards, everyone plays open hand!"*
+>
+> 🃏 Claude (Landlord) vs 🎯 Codex + 💎 Gemini (Farmers)
+
 > **Note:** Manual commands (like `cask`, `cping`) are usually invoked by Claude automatically. See Command Reference for details.
 
 ---
