@@ -34,11 +34,9 @@
 
 ## 🚀 Quick Start
 
-> **⚠️ Before Install:** If you have Codex MCP or related skills installed in Claude, remove them first to avoid conflicts:
-> ```bash
-> claude mcp remove codex        # Remove Codex MCP
-> claude skills remove codex     # Remove Codex skills (if any)
-> ```
+**Step 1:** Install [WezTerm](https://wezfurlong.org/wezterm/) (native `.exe` for Windows)
+
+**Step 2:** Choose installer based on your environment:
 
 <details open>
 <summary><b>Linux / macOS</b></summary>
@@ -54,7 +52,7 @@ cd claude_code_bridge
 <details>
 <summary><b>WSL (Windows Subsystem for Linux)</b></summary>
 
-> **Note:** Install [WezTerm](https://wezfurlong.org/wezterm/) native `.exe` on Windows host. Choose installer based on your Claude/Codex/Gemini environment: if running in WSL, use `install.sh`.
+> Use this if your Claude/Codex/Gemini runs in WSL.
 
 ```bash
 # Run inside WSL terminal
@@ -68,7 +66,7 @@ cd claude_code_bridge
 <details>
 <summary><b>Windows Native</b></summary>
 
-> **Note:** Install [WezTerm](https://wezfurlong.org/wezterm/) native `.exe` version. Choose installer based on your Claude/Codex/Gemini environment: if running natively on Windows, use `install.ps1`.
+> Use this if your Claude/Codex/Gemini runs natively on Windows.
 
 ```powershell
 git clone https://github.com/bfly123/claude_code_bridge.git

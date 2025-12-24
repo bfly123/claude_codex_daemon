@@ -32,11 +32,9 @@
 
 ## 🚀 快速开始
 
-> **⚠️ 安装前提示：** 如果你在 Claude 中安装了 Codex MCP 或相关 skills，请先卸载以避免冲突：
-> ```bash
-> claude mcp remove codex        # 卸载 Codex MCP
-> claude skills remove codex     # 卸载 Codex skills（如有）
-> ```
+**第一步：** 安装 [WezTerm](https://wezfurlong.org/wezterm/)（Windows 请安装原生 `.exe` 版本）
+
+**第二步：** 根据你的环境选择安装脚本：
 
 <details>
 <summary><b>Linux / macOS</b></summary>
@@ -52,7 +50,7 @@ cd claude_code_bridge
 <details>
 <summary><b>WSL (Windows 子系统)</b></summary>
 
-> **提示：** 请在 Windows 宿主机上安装 [WezTerm](https://wezfurlong.org/wezterm/) 原生 `.exe` 版本。根据你的 Claude/Codex/Gemini 运行环境选择安装脚本：如果在 WSL 中运行，请使用 `install.sh`。
+> 如果你的 Claude/Codex/Gemini 运行在 WSL 中，请使用此方式。
 
 ```bash
 # 在 WSL 终端中运行
@@ -66,7 +64,7 @@ cd claude_code_bridge
 <details>
 <summary><b>Windows 原生</b></summary>
 
-> **提示：** 请安装 [WezTerm](https://wezfurlong.org/wezterm/) 原生 `.exe` 版本。根据你的 Claude/Codex/Gemini 运行环境选择安装脚本：如果在 Windows 原生环境运行，请使用 `install.ps1`。
+> 如果你的 Claude/Codex/Gemini 运行在 Windows 原生环境，请使用此方式。
 
 ```powershell
 git clone https://github.com/bfly123/claude_code_bridge.git
