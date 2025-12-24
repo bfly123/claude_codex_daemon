@@ -92,21 +92,48 @@ function Find-Python {
 function Require-Python310 {
   param([string]$PythonCmd)
 
-  $parts = $PythonCmd -split " " | Where-Object { $_ }
-  $exe = $parts[0]
-  $args = @()
-  if ($parts.Length -gt 1) {
-    $args = $parts[1..($parts.Length - 1)]
-  }
+  # Handle commands with arguments (e.g., "py -3")
+  $cmdParts = $PythonCmd -split ' ', 2
+  $fileName = $cmdParts[0]
+  $baseArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1] } else { "" }
 
+  # Use ProcessStartInfo for reliable execution across different Python installations
+  # (e.g., Miniconda, custom paths). The & operator can fail in some environments.
   try {
-    $vinfo = & $exe @args -c "import sys; v=sys.version_info; print(f'{v.major}.{v.minor}.{v.micro} {v.major} {v.minor}')"
-    $parts = $vinfo.Trim() -split " "
-    $version = $parts[0]
-    $major = [int]$parts[1]
-    $minor = [int]$parts[2]
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $fileName
+    # Combine base arguments with Python code arguments
+    if ($baseArgs) {
+      $psi.Arguments = "$baseArgs -c `"import sys; v=sys.version_info; print(f'{v.major}.{v.minor}.{v.micro} {v.major} {v.minor}')`""
+    } else {
+      $psi.Arguments = "-c `"import sys; v=sys.version_info; print(f'{v.major}.{v.minor}.{v.micro} {v.major} {v.minor}')`""
+    }
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    $process.Start() | Out-Null
+    $process.WaitForExit()
+
+    $vinfo = $process.StandardOutput.ReadToEnd().Trim()
+    if ($process.ExitCode -ne 0 -or [string]::IsNullOrEmpty($vinfo)) {
+      throw $process.StandardError.ReadToEnd()
+    }
+
+    $vparts = $vinfo -split " "
+    if ($vparts.Length -lt 3) {
+      throw "Unexpected version output: $vinfo"
+    }
+
+    $version = $vparts[0]
+    $major = [int]$vparts[1]
+    $minor = [int]$vparts[2]
   } catch {
     Write-Host "[ERROR] Failed to query Python version using: $PythonCmd"
+    Write-Host "   Error details: $_"
     exit 1
   }
 
