@@ -112,6 +112,12 @@ Once started, collaborate naturally. Claude will detect when to delegate tasks.
 - **Architecture:** *"Let Codex design the module structure first."*
 - **Info Exchange:** *"Fetch 3 rounds of Codex conversation and summarize."*
 
+### 🖥️ Editor Integration: Neovim + Multi-AI Review
+
+<img src="assets/nvim.png" alt="Neovim integration with multi-AI code review" width="900">
+
+> Combine with editors like **Neovim** for seamless code editing and multi-model review workflow. Edit in your favorite editor while AI assistants review and suggest improvements in real-time.
+
 ### 🎴 Fun & Creative: AI Poker Night!
 
 > *"Let Claude, Codex and Gemini play Dou Di Zhu (斗地主)! You deal the cards, everyone plays open hand!"*
