@@ -52,6 +52,8 @@ cd claude_code_bridge
 <details>
 <summary><b>WSL (Windows 子系统)</b></summary>
 
+> **提示：** 请在 Windows 宿主机上安装 [WezTerm](https://wezfurlong.org/wezterm/) 原生 `.exe` 版本。根据你的 Claude/Codex/Gemini 运行环境选择安装脚本：如果在 WSL 中运行，请使用 `install.sh`。
+
 ```bash
 # 在 WSL 终端中运行
 git clone https://github.com/bfly123/claude_code_bridge.git
@@ -59,20 +61,18 @@ cd claude_code_bridge
 ./install.sh install
 ```
 
-需要在 Windows 宿主机上安装 [WezTerm](https://wezfurlong.org/wezterm/)。
-
 </details>
 
 <details>
 <summary><b>Windows 原生</b></summary>
+
+> **提示：** 请安装 [WezTerm](https://wezfurlong.org/wezterm/) 原生 `.exe` 版本。根据你的 Claude/Codex/Gemini 运行环境选择安装脚本：如果在 Windows 原生环境运行，请使用 `install.ps1`。
 
 ```powershell
 git clone https://github.com/bfly123/claude_code_bridge.git
 cd claude_code_bridge
 powershell -ExecutionPolicy Bypass -File .\install.ps1 install
 ```
-
-需要安装 [WezTerm](https://wezfurlong.org/wezterm/)。
 
 </details>
 
