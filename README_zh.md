@@ -171,6 +171,6 @@ ccb update              # 更新 ccb 到最新版本
 
 **测试用户群，欢迎加入**
 
-<img src="assets/wechat.jpg" alt="微信群" width="300">
+<img src="assets/wechat.png" alt="微信群" width="300">
 
 </div>
