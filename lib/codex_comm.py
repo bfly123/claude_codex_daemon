@@ -32,10 +32,12 @@ SESSION_ID_PATTERN = re.compile(
 class CodexLogReader:
     """Reads Codex official logs from ~/.codex/sessions"""
 
-    def __init__(self, root: Path = SESSION_ROOT, log_path: Optional[Path] = None, session_id_filter: Optional[str] = None):
+    def __init__(self, root: Path = SESSION_ROOT, log_path: Optional[Path] = None,
+                 session_id_filter: Optional[str] = None, work_dir: Optional[Path] = None):
         self.root = Path(root).expanduser()
         self._preferred_log = self._normalize_path(log_path)
         self._session_id_filter = session_id_filter
+        self._work_dir = self._normalize_work_dir(work_dir)
         try:
             poll = float(os.environ.get("CODEX_POLL_INTERVAL", "0.05"))
         except Exception:
@@ -44,6 +46,31 @@ class CodexLogReader:
 
     def set_preferred_log(self, log_path: Optional[Path]) -> None:
         self._preferred_log = self._normalize_path(log_path)
+
+    def _normalize_work_dir(self, work_dir: Optional[Path]) -> Optional[str]:
+        """Normalize work_dir for comparison with cwd in session logs"""
+        if work_dir is None:
+            work_dir = Path.cwd()
+        try:
+            return str(work_dir.resolve()).lower()
+        except Exception:
+            return None
+
+    def _extract_cwd_from_log(self, log_path: Path) -> Optional[str]:
+        """Extract cwd from session_meta in the first line of log file"""
+        try:
+            with log_path.open("r", encoding="utf-8") as f:
+                first_line = f.readline()
+            if not first_line:
+                return None
+            entry = json.loads(first_line)
+            if entry.get("type") == "session_meta":
+                cwd = entry.get("payload", {}).get("cwd")
+                if cwd:
+                    return str(Path(cwd).resolve()).lower()
+        except Exception:
+            pass
+        return None
 
     def _normalize_path(self, value: Optional[Any]) -> Optional[Path]:
         if value in (None, ""):
@@ -63,6 +90,10 @@ class CodexLogReader:
             latest: Optional[Path] = None
             latest_mtime = -1.0
             for p in (p for p in self.root.glob("**/*.jsonl") if p.is_file()):
+                if self._work_dir:
+                    cwd = self._extract_cwd_from_log(p)
+                    if not cwd or cwd != self._work_dir:
+                        continue
                 try:
                     mtime = p.stat().st_mtime
                 except OSError:

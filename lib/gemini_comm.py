@@ -89,8 +89,7 @@ class GeminiLogReader:
         if sessions:
             return sessions[-1]
 
-        # fallback: projectHash may mismatch due to path normalization differences (Windows/WSL, symlinks, etc.)
-        return self._scan_latest_session_any_project()
+        return None
 
     def _latest_session(self) -> Optional[Path]:
         preferred = self._preferred_session
