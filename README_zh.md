@@ -96,6 +96,105 @@ ccb update              # 更新 ccb 到最新版本
 
 ---
 
+## 🪟 Windows 安装指南（WSL vs 原生）
+
+> 结论先说：`ccb/cask-w/cping` 必须和 `codex/gemini` 跑在**同一个环境**（WSL 就都在 WSL，原生 Windows 就都在原生 Windows）。最常见问题就是装错环境导致 `cping` 不通。
+
+### 1) 前置条件：安装原生版 WezTerm（不是 WSL 版）
+
+- 请安装 Windows 原生 WezTerm（官网 `.exe` / winget 安装都可以），不要在 WSL 里安装 Linux 版 WezTerm。
+- 原因：`ccb` 在 WezTerm 模式下依赖 `wezterm cli` 管理窗格；使用 Windows 原生 WezTerm 最稳定，也最符合本项目的“分屏多模型协作”设计。
+
+### 2) 判断方法：你到底是在 WSL 还是原生 Windows？
+
+优先按“**你是通过哪种方式安装并运行 Claude Code/Codex**”来判断：
+
+- **WSL 环境特征**
+  - 你在 WSL 终端（Ubuntu/Debian 等）里用 `bash` 安装/运行（例如 `curl ... | bash`、`apt`、`pip`、`npm` 安装后在 Linux shell 里执行）。
+  - 路径通常长这样：`/home/<user>/...`，并且可能能看到 `/mnt/c/...`。
+  - 可辅助确认：`cat /proc/version | grep -i microsoft` 有输出，或 `echo $WSL_DISTRO_NAME` 非空。
+- **原生 Windows 环境特征**
+  - 你在 Windows Terminal / WezTerm / PowerShell / CMD 里安装/运行（例如 `winget`、PowerShell 安装脚本、Windows 版 `codex.exe`），并用 `powershell`/`cmd` 启动。
+  - 路径通常长这样：`C:\\Users\\<user>\\...`，并且 `where codex`/`where claude` 返回的是 Windows 路径。
+
+### 3) WSL 用户指南（推荐：WezTerm 承载，计算与工具在 WSL）
+
+#### 3.1 让 WezTerm 启动时自动进入 WSL
+
+在 Windows 上编辑 WezTerm 配置文件（通常是 `%USERPROFILE%\\.wezterm.lua`），设置默认进入某个 WSL 发行版：
+
+```lua
+local wezterm = require 'wezterm'
+
+return {
+  default_domain = 'WSL:Ubuntu', -- 把 Ubuntu 换成你的发行版名
+}
+```
+
+发行版名可在 PowerShell 里用 `wsl -l -v` 查看（例如 `Ubuntu-22.04`）。
+
+#### 3.2 在 WSL 中运行 `install.sh` 安装
+
+在 WezTerm 打开的 WSL shell 里执行：
+
+```bash
+git clone https://github.com/bfly123/claude_code_bridge.git
+cd claude_code_bridge
+./install.sh install
+```
+
+提示：
+- 需要 WSL2（WSL1 不支持 FIFO 管道）；如遇提示请按指引升级到 WSL2。
+- 后续所有 `ccb/cask/cask-w/cping` 也都请在 **WSL** 里运行（和你的 `codex/gemini` 保持一致）。
+
+#### 3.3 安装后如何测试（`cping`）
+
+```bash
+ccb up codex
+cping
+```
+
+预期看到类似 `Codex connection OK (...)` 的输出；失败会提示缺失项（例如窗格不存在、会话目录缺失等）。
+
+### 4) 原生 Windows 用户指南（WezTerm 承载，工具也在 Windows）
+
+#### 4.1 在原生 Windows 中运行 `install.ps1` 安装
+
+在 PowerShell 里执行：
+
+```powershell
+git clone https://github.com/bfly123/claude_code_bridge.git
+cd claude_code_bridge
+powershell -ExecutionPolicy Bypass -File .\install.ps1 install
+```
+
+提示：
+- 安装脚本会明确提醒“`ccb/cask-w` 必须与 `codex/gemini` 在同一环境运行”，请确认你打算在原生 Windows 运行 `codex/gemini`。
+
+#### 4.2 安装后如何测试
+
+```powershell
+ccb up codex
+cping
+```
+
+同样预期看到 `Codex connection OK (...)`。
+
+### 5) 常见问题（尤其是 `cping` 不通）
+
+#### 5.1 打开 ccb 后无法 ping 通 Codex 的原因
+
+- **最主要原因：搞错 WSL 和原生环境（装/跑不在同一侧）**
+  - 例子：你在 WSL 里装了 `ccb`，但 `codex` 在原生 Windows 跑；或反过来。此时两边的路径、会话目录、管道/窗格检测都对不上，`cping` 大概率失败。
+- **Codex 会话并没有启动或已退出**
+  - 先执行 `ccb up codex`，并确认 Codex 对应的 WezTerm 窗格还存在、没有被手动关闭。
+- **WezTerm CLI 不可用或找不到**
+  - `ccb` 在 WezTerm 模式下需要调用 `wezterm cli list` 等命令；如果 `wezterm` 不在 PATH，或 WSL 里找不到 `wezterm.exe`，会导致检测失败（可重开终端或按提示配置 `CODEX_WEZTERM_BIN`）。
+- **WSL1 / 发行版兼容问题**
+  - WSL1 不支持 FIFO：请升级到 WSL2。
+- **PATH/终端未刷新**
+  - 安装后请重启终端（WezTerm），再运行 `ccb`/`cping`。
+
 ## 🗣️ 使用场景
 
 安装完成后，直接用自然语言与 Claude 对话即可，它会自动检测并分派任务。
