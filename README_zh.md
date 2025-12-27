@@ -144,7 +144,6 @@ cd claude_code_bridge
 ```
 
 提示：
-- 需要 WSL2（WSL1 不支持 FIFO 管道）；如遇提示请按指引升级到 WSL2。
 - 后续所有 `ccb/cask/cask-w/cping` 也都请在 **WSL** 里运行（和你的 `codex/gemini` 保持一致）。
 
 #### 3.3 安装后如何测试（`cping`）
@@ -190,8 +189,6 @@ cping
   - 先执行 `ccb up codex`，并确认 Codex 对应的 WezTerm 窗格还存在、没有被手动关闭。
 - **WezTerm CLI 不可用或找不到**
   - `ccb` 在 WezTerm 模式下需要调用 `wezterm cli list` 等命令；如果 `wezterm` 不在 PATH，或 WSL 里找不到 `wezterm.exe`，会导致检测失败（可重开终端或按提示配置 `CODEX_WEZTERM_BIN`）。
-- **WSL1 / 发行版兼容问题**
-  - WSL1 不支持 FIFO：请升级到 WSL2。
 - **PATH/终端未刷新**
   - 安装后请重启终端（WezTerm），再运行 `ccb`/`cping`。
 

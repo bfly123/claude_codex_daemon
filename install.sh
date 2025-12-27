@@ -49,9 +49,6 @@ msg() {
     detected_env)
       en_msg="Detected $1 environment"
       zh_msg="检测到 $1 环境" ;;
-    wsl1_not_supported)
-      en_msg="WSL 1 does not support FIFO pipes, please upgrade to WSL 2"
-      zh_msg="WSL 1 不支持 FIFO 管道，请升级到 WSL 2" ;;
     confirm_wsl)
       en_msg="Confirm continue installing in WSL? (y/N)"
       zh_msg="确认继续在 WSL 中安装？(y/N)" ;;
@@ -202,12 +199,7 @@ check_wsl_compatibility() {
   if is_wsl; then
     local ver
     ver="$(get_wsl_version)"
-    if [[ "$ver" == "1" ]]; then
-      echo "❌ WSL 1 does not support FIFO pipes, please upgrade to WSL 2"
-      echo "   Run: wsl --set-version <distro> 2"
-      exit 1
-    fi
-    echo "✅ Detected WSL 2 environment"
+    echo "✅ Detected WSL $ver environment"
   fi
 }
 
