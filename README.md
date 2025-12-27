@@ -98,6 +98,50 @@ ccb update              # Update ccb to the latest version
 
 ---
 
+## 🪟 Windows Installation Guide (WSL vs Native)
+
+> **Key Point:** `ccb/cask-w/cping` must run in the **same environment** as `codex/gemini`. The most common issue is environment mismatch causing `cping` to fail.
+
+### 1) Prerequisites: Install Native WezTerm
+
+- Install Windows native WezTerm (`.exe` from official site or via winget), not the Linux version inside WSL.
+- Reason: `ccb` in WezTerm mode relies on `wezterm cli` to manage panes.
+
+### 2) How to Identify Your Environment
+
+Determine based on **how you installed/run Claude Code/Codex**:
+
+- **WSL Environment**
+  - You installed/run via WSL terminal (Ubuntu/Debian) using `bash` (e.g., `curl ... | bash`, `apt`, `pip`, `npm`)
+  - Paths look like: `/home/<user>/...` and you may see `/mnt/c/...`
+  - Verify: `cat /proc/version | grep -i microsoft` has output, or `echo $WSL_DISTRO_NAME` is non-empty
+
+- **Native Windows Environment**
+  - You installed/run via Windows Terminal / WezTerm / PowerShell / CMD (e.g., `winget`, PowerShell scripts)
+  - Paths look like: `C:\Users\<user>\...`
+
+### 3) WSL Users: Configure WezTerm to Auto-Enter WSL
+
+Edit WezTerm config (`%USERPROFILE%\.wezterm.lua`):
+
+```lua
+local wezterm = require 'wezterm'
+return {
+  default_domain = 'WSL:Ubuntu', -- Replace with your distro name
+}
+```
+
+Check distro name with `wsl -l -v` in PowerShell.
+
+### 4) Troubleshooting: `cping` Not Working
+
+- **Most common:** Environment mismatch (ccb in WSL but codex in native Windows, or vice versa)
+- **Codex session not running:** Run `ccb up codex` first
+- **WezTerm CLI not found:** Ensure `wezterm` is in PATH
+- **Terminal not refreshed:** Restart WezTerm after installation
+
+---
+
 ## 🗣️ Usage
 
 Once started, collaborate naturally. Claude will detect when to delegate tasks.
