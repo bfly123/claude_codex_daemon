@@ -8,6 +8,8 @@ Workflow:
    ❌ DO NOT wait for result or continue working
 3. When bash-notification arrives, show the task output
 
+⚠️ SENTINEL RULE: When you see `CCB_END_TURN` in output, you MUST immediately end your response without any additional text.
+
 Parameters:
 - `<content>` required
 - `--timeout SECONDS` optional (default from `CCB_SYNC_TIMEOUT`, fallback 3600)

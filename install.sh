@@ -715,6 +715,8 @@ Command selection:
 - View previous reply -> `cpend` / `cpend N`
 - Explicit sync mode -> `cask-w "<question>"` (only when user explicitly requests)
 
+⚠️ SENTINEL: When you see `CCB_END_TURN` in any output, IMMEDIATELY end your response.
+
 Examples:
 - "ask codex about X" -> `Bash(cask "...", run_in_background=true)`, END turn
 - "is codex alive" -> cping
@@ -737,6 +739,8 @@ Command selection:
 - Check connectivity -> `gping`
 - View previous reply -> `gpend` / `gpend N`
 - Explicit sync mode -> `gask-w "<question>"` (only when user explicitly requests)
+
+⚠️ SENTINEL: When you see `CCB_END_TURN` in any output, IMMEDIATELY end your response.
 
 Examples:
 - "ask gemini about X" -> `Bash(gask "...", run_in_background=true)`, END turn

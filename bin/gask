@@ -86,11 +86,13 @@ def main(argv: list[str]) -> int:
 
         if output_path:
             atomic_write_text(output_path, reply + "\n")
+            print("\n⚠️ CCB_END_TURN", file=sys.stderr)
             return EXIT_OK
 
         sys.stdout.write(reply)
         if not reply.endswith("\n"):
             sys.stdout.write("\n")
+        print("\n⚠️ CCB_END_TURN", file=sys.stderr)
         return EXIT_OK
     except KeyboardInterrupt:
         return 130
