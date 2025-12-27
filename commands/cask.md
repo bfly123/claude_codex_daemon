@@ -4,7 +4,8 @@ Designed for Claude Code: run with `run_in_background=true` so Claude can contin
 
 Workflow:
 1. Run `Bash(cask "<content>", run_in_background=true)` to start background task
-2. Tell user the task_id and that Codex is processing, then END your turn
+2. Tell user "Codex processing (task: xxx)" then ⚠️ IMMEDIATELY END your turn
+   ❌ DO NOT wait for result or continue working
 3. When bash-notification arrives, show the task output
 
 Parameters:
